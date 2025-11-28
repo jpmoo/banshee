@@ -202,6 +202,39 @@ def get_map_name(filepath: str) -> Optional[str]:
         return None
 
 
+def get_map_metadata(filepath: str) -> Optional[Tuple[str, List[Settlement]]]:
+    """
+    Get map name and settlements from a map file without fully loading terrain.
+    Note: This still deserializes the entire file, but we only use the metadata.
+    For better performance, avoid calling this for many files at once.
+    
+    Args:
+        filepath: Path to the map file
+        
+    Returns:
+        Tuple of (map_name, settlements) if successful, None otherwise
+    """
+    try:
+        if not os.path.exists(filepath):
+            return None
+        
+        # Try compressed format first, fall back to uncompressed
+        try:
+            with gzip.open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
+        except (gzip.BadGzipFile, OSError):
+            with open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
+        
+        map_name = save_data.get('map_name', os.path.basename(filepath).replace('.banshee', ''))
+        settlements = save_data.get('settlements', [])
+        
+        return (map_name, settlements)
+    except Exception as e:
+        print(f"Error loading map metadata from {filepath}: {e}")
+        return None
+
+
 def get_map_seed(filepath: str) -> Optional[int]:
     """
     Get the seed of a saved map without loading the entire map.

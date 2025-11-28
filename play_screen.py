@@ -481,6 +481,9 @@ class PlayScreen:
         hours = self._get_movement_time(terrain.terrain_type)
         self.calendar.add_hours(hours)
         
+        # Update caravans when player moves (time passes)
+        self._update_caravans_on_move()
+        
         # No "Moved" message - only show messages for issues
     
     def update_movement(self, dt: float):
@@ -769,6 +772,10 @@ class PlayScreen:
             if not (0 <= x < self.map_width and 0 <= y < self.map_height):
                 return False
             terrain = self.map_data[y][x]
+            # Explicitly prevent movement through water, rivers, and mountains
+            if terrain.terrain_type in [TerrainType.SHALLOW_WATER, TerrainType.DEEP_WATER, 
+                                       TerrainType.RIVER, TerrainType.MOUNTAIN]:
+                return False
             return terrain.can_move_through()
         
         # A* algorithm
@@ -822,6 +829,34 @@ class PlayScreen:
         # No path found
         return None
     
+    def _validate_path(self, path: List[Tuple[int, int]]) -> Optional[List[Tuple[int, int]]]:
+        """
+        Validate a path to ensure it doesn't contain water, rivers, or mountains.
+        
+        Args:
+            path: List of (x, y) tuples representing the path
+            
+        Returns:
+            Validated path if all tiles are passable, None otherwise
+        """
+        if not path:
+            return None
+        
+        validated_path = []
+        for x, y in path:
+            if not (0 <= x < self.map_width and 0 <= y < self.map_height):
+                return None  # Out of bounds
+                terrain = self.map_data[y][x]
+            # Explicitly block water, rivers, and mountains
+            if terrain.terrain_type in [TerrainType.SHALLOW_WATER, TerrainType.DEEP_WATER, 
+                                       TerrainType.RIVER, TerrainType.MOUNTAIN]:
+                return None  # Invalid path
+            if not terrain.can_move_through():
+                return None  # Impassable terrain
+            validated_path.append((x, y))
+        
+        return validated_path
+    
     def _has_clear_path(self, x1: int, y1: int, x2: int, y2: int) -> bool:
         """
         Check if there's a path between two points (using A* pathfinding).
@@ -834,7 +869,11 @@ class PlayScreen:
             True if a valid path exists
         """
         path = self._astar_path(x1, y1, x2, y2)
-        return path is not None
+        if path is None:
+                    return False
+        # Validate the path
+        validated = self._validate_path(path)
+        return validated is not None
     
     def _check_settlement_at_position(self):
         """Check if player is standing on a settlement and update current_settlement."""
@@ -934,23 +973,23 @@ class PlayScreen:
                 
                 # Movement commands
                 if event.key == pygame.K_UP or event.key == pygame.K_w:
-                    self.add_command_message("> n")
+                    self.add_command_message("> Move north")
                     self.move_player('north')
                     command_executed = True
                 elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                    self.add_command_message("> s")
+                    self.add_command_message("> Move south")
                     self.move_player('south')
                     command_executed = True
                 elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
-                    self.add_command_message("> e")
+                    self.add_command_message("> Move east")
                     self.move_player('east')
                     command_executed = True
                 elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                    self.add_command_message("> w")
+                    self.add_command_message("> Move west")
                     self.move_player('west')
                     command_executed = True
                 elif event.key == pygame.K_m:
-                    self.add_command_message("> m")
+                    self.add_command_message("> Toggle map view")
                     # Toggle map view
                     self.map_view_mode = not self.map_view_mode
                     if self.map_view_mode:
@@ -964,21 +1003,29 @@ class PlayScreen:
                     command_executed = True
                 elif event.key == pygame.K_f:
                     # Save/Load prompt
-                    self.add_command_message("> f")
+                    self.add_command_message("> Save/Load menu")
                     self.pending_prompt = 'save_or_load'
                     self.add_command_message("Save or Load? (s/l)")
                     command_executed = True
                 elif event.key == pygame.K_q:
                     # Quit prompt
-                    self.add_command_message("> q")
+                    self.add_command_message("> Quit game")
                     self.pending_prompt = 'quit_save'
                     self.add_command_message("Quit and save? (y/n)")
+                    command_executed = True
+                elif event.key == pygame.K_SPACE:
+                    # Pass a turn (advance time without moving)
+                    self.add_command_message("> Pass")
+                    # Advance time by 2 hours (same as moving on grassland)
+                    self.calendar.add_hours(2)
+                    # Update caravans when time passes
+                    self._update_caravans_on_move()
                     command_executed = True
                 elif self.pending_prompt:
                     # Handle prompt responses
                     if self.pending_prompt == 'save_or_load':
                         if event.key == pygame.K_s:
-                            self.add_command_message("> s")
+                            self.add_command_message("> Save")
                             # Save game
                             if self.map_filepath:
                                 saved_filepath = save_game(
@@ -1000,7 +1047,7 @@ class PlayScreen:
                             self.pending_prompt = None
                             command_executed = True
                         elif event.key == pygame.K_l:
-                            self.add_command_message("> l")
+                            self.add_command_message("> Load")
                             self.add_command_message("Loading not implemented in-game. Use main menu.")
                             self.pending_prompt = None
                             command_executed = True
@@ -1011,7 +1058,7 @@ class PlayScreen:
                             command_executed = True
                     elif self.pending_prompt == 'quit_save':
                         if event.key == pygame.K_y:
-                            self.add_command_message("> y")
+                            self.add_command_message("> Yes")
                             # Save and quit
                             if self.map_filepath:
                                 saved_filepath = save_game(
@@ -1033,7 +1080,7 @@ class PlayScreen:
                             self.pending_prompt = None
                             return 'quit'
                         elif event.key == pygame.K_n:
-                            self.add_command_message("> n")
+                            self.add_command_message("> No")
                             self.add_command_message("Quitting without saving...")
                             self.pending_prompt = None
                             return 'quit'
@@ -1077,12 +1124,12 @@ class PlayScreen:
                         if town.resources[village.supplies_resource] >= 1000:
                             continue  # Town has enough of this resource, skip spawning
                 
-                # Check if there's already a caravan for this village
-                existing = [c for c in self.caravans if c.village == village and 
-                           c.state in [CaravanState.AT_VILLAGE, CaravanState.TRAVELING_TO_TOWN]]
-                if existing:
-                    continue  # Already has a caravan
-                
+                    # Check if there's already a caravan for this village
+                    existing = [c for c in self.caravans if c.village == village and 
+                               c.state in [CaravanState.AT_VILLAGE, CaravanState.TRAVELING_TO_TOWN]]
+                    if existing:
+                        continue  # Already has a caravan
+                    
                 # 30% chance to spawn a caravan
                 if random.random() < 0.3:
                     # Create new caravan
@@ -1097,103 +1144,112 @@ class PlayScreen:
                         path_to_town = self._get_path(village_x, village_y, town_x, town_y)
                         path_to_village = self._get_path(town_x, town_y, village_x, village_y)
                         
-                        caravan.set_path_to_town(path_to_town)
-                        caravan.set_path_to_village(path_to_village)
+                        # Validate paths - ensure no water tiles
+                        path_to_town = self._validate_path(path_to_town)
+                        path_to_village = self._validate_path(path_to_village)
                         
-                        # Start journey to town
-                        caravan.start_journey_to_town()
-                        
-                        self.caravans.append(caravan)
+                        if path_to_town and path_to_village:
+                            caravan.set_path_to_town(path_to_town)
+                            caravan.set_path_to_village(path_to_village)
+                            
+                            # Start journey to town
+                            caravan.start_journey_to_town()
+                            
+                            self.caravans.append(caravan)
+                        else:
+                            continue  # Invalid path, skip this caravan
                     # Note: If path is not clear, caravan simply doesn't spawn (silent failure)
     
-    def _update_caravans(self, dt: float):
-        """Update caravan positions and states."""
-        # Movement speed: same as player (2 hours per tile on grassland)
-        # For simplicity, we'll move caravans at a constant rate
-        move_speed = 0.05  # Tiles per update (adjust for smooth movement)
+    def _update_caravans_on_move(self):
+        """Update caravan positions when player moves (time passes)."""
+        """Caravans move one tile at a time, respecting terrain movement rules."""
         
         for caravan in self.caravans[:]:  # Use slice to avoid modification during iteration
             if caravan.state == CaravanState.TRAVELING_TO_TOWN:
-                # Move towards next waypoint in path
-                if caravan.path_index_to_town < len(caravan.path_to_town):
-                    target_x, target_y = caravan.path_to_town[caravan.path_index_to_town]
+                # Get current position as integer tile coordinates
+                current_tile_x = int(caravan.x)
+                current_tile_y = int(caravan.y)
+                
+                # Check if we have a path and haven't reached the end
+                if caravan.path_index_to_town >= len(caravan.path_to_town):
+                    # Arrived at town
+                    town_x, town_y = caravan.town.get_position()
+                    caravan.x = float(town_x)
+                    caravan.y = float(town_y)
+                    caravan.state = CaravanState.AT_TOWN
+                    caravan.arrived_at_town_time = (self.calendar.day, self.calendar.hour)
                     
-                    # Move towards target (simple linear interpolation)
-                    dx = target_x - caravan.x
-                    dy = target_y - caravan.y
-                    distance = math.sqrt(dx * dx + dy * dy)
+                    # Add resources to town immediately
+                    if caravan.village.supplies_resource:
+                        caravan.town.add_resource(caravan.village.supplies_resource, 10)
+                        
+                        # Check for trade good production
+                        trade_goods_produced = caravan.town.produce_trade_goods()
+                        
+                        # Check for trade good transfer to liege
+                        trade_goods_transferred = caravan.town.transfer_trade_goods_to_liege()
+                        
+                        # Log messages if something happened
+                        if trade_goods_produced > 0:
+                            self.add_status_message(f"{caravan.town.name or 'Town'} produced {trade_goods_produced} trade good(s)")
+                        if trade_goods_transferred > 0:
+                            liege_name = caravan.town.vassal_to.name if caravan.town.vassal_to else "Unknown"
+                            self.add_status_message(f"{caravan.town.name or 'Town'} sent {trade_goods_transferred} trade goods to {liege_name}")
+                    continue
+                
+                # Get next waypoint
+                target_x, target_y = caravan.path_to_town[caravan.path_index_to_town]
+                
+                # Check if we're already at the target tile
+                if current_tile_x == target_x and current_tile_y == target_y:
+                    # Move to next waypoint
+                    caravan.path_index_to_town += 1
+                    continue
+                
+                # Check terrain at target location
+                if 0 <= target_y < self.map_height and 0 <= target_x < self.map_width:
+                    target_terrain = self.map_data[target_y][target_x]
                     
-                    if distance < 0.1:  # Close enough, move to next waypoint
+                    # Check if terrain requires 2 moves (hills, forest, forested_hill)
+                    is_slow_terrain = target_terrain.terrain_type in [
+                        TerrainType.HILLS, 
+                        TerrainType.FOREST, 
+                        TerrainType.FORESTED_HILL
+                    ]
+                    
+                    if is_slow_terrain:
+                        # Need 2 moves for slow terrain
+                        if caravan.pending_direction is None:
+                            # First move - start pending
+                            caravan.pending_direction = (target_x, target_y)
+                            caravan.pending_move_count = 1
+                        elif caravan.pending_direction == (target_x, target_y):
+                            # Second move in same direction - complete movement
+                            caravan.pending_move_count += 1
+                            if caravan.pending_move_count >= 2:
+                                # Complete movement
+                                caravan.x = float(target_x)
+                                caravan.y = float(target_y)
+                                caravan.path_index_to_town += 1
+                                caravan.pending_direction = None
+                                caravan.pending_move_count = 0
+                        else:
+                            # Different direction - reset and start new pending
+                            caravan.pending_direction = (target_x, target_y)
+                            caravan.pending_move_count = 1
+                    else:
+                        # Fast terrain - move immediately
                         caravan.x = float(target_x)
                         caravan.y = float(target_y)
                         caravan.path_index_to_town += 1
-                        
-                        # Check if reached town
-                        if caravan.path_index_to_town >= len(caravan.path_to_town):
-                            # Arrived at town
-                            town_x, town_y = caravan.town.get_position()
-                            caravan.x = float(town_x)
-                            caravan.y = float(town_y)
-                            caravan.state = CaravanState.AT_TOWN
-                            caravan.arrived_at_town_time = (self.calendar.day, self.calendar.hour)
-                            
-                            # Add resources to town immediately
-                            if caravan.village.supplies_resource:
-                                caravan.town.add_resource(caravan.village.supplies_resource, 10)
-                                
-                                # Check for trade good production
-                                trade_goods_produced = caravan.town.produce_trade_goods()
-                                
-                                # Check for trade good transfer to liege
-                                trade_goods_transferred = caravan.town.transfer_trade_goods_to_liege()
-                                
-                                # Log messages if something happened
-                                if trade_goods_produced > 0:
-                                    self.add_status_message(f"{caravan.town.name or 'Town'} produced {trade_goods_produced} trade good(s)")
-                                if trade_goods_transferred > 0:
-                                    liege_name = caravan.town.vassal_to.name if caravan.town.vassal_to else "Unknown"
-                                    self.add_status_message(f"{caravan.town.name or 'Town'} sent {trade_goods_transferred} trade goods to {liege_name}")
-                    else:
-                        # Move towards target
-                        if distance > move_speed:
-                            caravan.x += (dx / distance) * move_speed
-                            caravan.y += (dy / distance) * move_speed
-                        else:
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_town += 1
-                            
-                            # Check if reached town
-                            if caravan.path_index_to_town >= len(caravan.path_to_town):
-                                town_x, town_y = caravan.town.get_position()
-                                caravan.x = float(town_x)
-                                caravan.y = float(town_y)
-                                caravan.state = CaravanState.AT_TOWN
-                                caravan.arrived_at_town_time = (self.calendar.day, self.calendar.hour)
-                                
-                                # Add resources to town immediately
-                                if caravan.village.supplies_resource:
-                                    caravan.town.add_resource(caravan.village.supplies_resource, 10)
-                                    
-                                    # Check for trade good production
-                                    trade_goods_produced = caravan.town.produce_trade_goods()
-                                    
-                                    # Check for trade good transfer to liege
-                                    trade_goods_transferred = caravan.town.transfer_trade_goods_to_liege()
-                                    
-                                    # Log messages if something happened
-                                    if trade_goods_produced > 0:
-                                        self.add_status_message(f"{caravan.town.name or 'Town'} produced {trade_goods_produced} trade good(s)")
-                                    if trade_goods_transferred > 0:
-                                        liege_name = caravan.town.vassal_to.name if caravan.town.vassal_to else "Unknown"
-                                        self.add_status_message(f"{caravan.town.name or 'Town'} sent {trade_goods_transferred} trade goods to {liege_name}")
+                        caravan.pending_direction = None
+                        caravan.pending_move_count = 0
             
             elif caravan.state == CaravanState.AT_TOWN:
                 # Check if it's the next morning (hour 6)
                 if caravan.arrived_at_town_time:
                     arrived_day, arrived_hour = caravan.arrived_at_town_time
                     # Start return journey on the next morning (hour 6)
-                    # If it's a different day and it's morning, or if it's the same day but later and we're at morning
                     if self.calendar.hour == 6:
                         # Check if at least one day has passed, or if it's the same day but we arrived before 6
                         if (self.calendar.day > arrived_day or 
@@ -1201,42 +1257,68 @@ class PlayScreen:
                             caravan.start_journey_to_village()
             
             elif caravan.state == CaravanState.TRAVELING_TO_VILLAGE:
-                # Move towards village
-                if caravan.path_index_to_village < len(caravan.path_to_village):
-                    target_x, target_y = caravan.path_to_village[caravan.path_index_to_village]
+                # Get current position as integer tile coordinates
+                current_tile_x = int(caravan.x)
+                current_tile_y = int(caravan.y)
+                
+                # Check if we have a path and haven't reached the end
+                if caravan.path_index_to_village >= len(caravan.path_to_village):
+                    # Arrived at village
+                    village_x, village_y = caravan.village.get_position()
+                    caravan.x = float(village_x)
+                    caravan.y = float(village_y)
+                    caravan.state = CaravanState.AT_VILLAGE
+                    # Remove caravan when it returns
+                    self.caravans.remove(caravan)
+                    continue
+                
+                # Get next waypoint
+                target_x, target_y = caravan.path_to_village[caravan.path_index_to_village]
+                
+                # Check if we're already at the target tile
+                if current_tile_x == target_x and current_tile_y == target_y:
+                    # Move to next waypoint
+                    caravan.path_index_to_village += 1
+                    continue
+                
+                # Check terrain at target location
+                if 0 <= target_y < self.map_height and 0 <= target_x < self.map_width:
+                    target_terrain = self.map_data[target_y][target_x]
                     
-                    dx = target_x - caravan.x
-                    dy = target_y - caravan.y
-                    distance = math.sqrt(dx * dx + dy * dy)
+                    # Check if terrain requires 2 moves (hills, forest, forested_hill)
+                    is_slow_terrain = target_terrain.terrain_type in [
+                        TerrainType.HILLS, 
+                        TerrainType.FOREST, 
+                        TerrainType.FORESTED_HILL
+                    ]
                     
-                    if distance < 0.1:
+                    if is_slow_terrain:
+                        # Need 2 moves for slow terrain
+                        if caravan.pending_direction is None:
+                            # First move - start pending
+                            caravan.pending_direction = (target_x, target_y)
+                            caravan.pending_move_count = 1
+                        elif caravan.pending_direction == (target_x, target_y):
+                            # Second move in same direction - complete movement
+                            caravan.pending_move_count += 1
+                            if caravan.pending_move_count >= 2:
+                                # Complete movement
+                                caravan.x = float(target_x)
+                                caravan.y = float(target_y)
+                                caravan.path_index_to_village += 1
+                                caravan.pending_direction = None
+                                caravan.pending_move_count = 0
+                        else:
+                            # Different direction - reset and start new pending
+                            caravan.pending_direction = (target_x, target_y)
+                            caravan.pending_move_count = 1
+                    else:
+                        # Fast terrain - move immediately
                         caravan.x = float(target_x)
                         caravan.y = float(target_y)
                         caravan.path_index_to_village += 1
-                        
-                        # Check if reached village
-                        if caravan.path_index_to_village >= len(caravan.path_to_village):
-                            village_x, village_y = caravan.village.get_position()
-                            caravan.x = float(village_x)
-                            caravan.y = float(village_y)
-                            caravan.state = CaravanState.AT_VILLAGE
-                            # Remove caravan when it returns (or keep it for next trip)
-                            self.caravans.remove(caravan)
-                    else:
-                        if distance > move_speed:
-                            caravan.x += (dx / distance) * move_speed
-                            caravan.y += (dy / distance) * move_speed
-                        else:
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_village += 1
-                            
-                            if caravan.path_index_to_village >= len(caravan.path_to_village):
-                                village_x, village_y = caravan.village.get_position()
-                                caravan.x = float(village_x)
-                                caravan.y = float(village_y)
-                                caravan.state = CaravanState.AT_VILLAGE
-                                self.caravans.remove(caravan)
+                        caravan.pending_direction = None
+                        caravan.pending_move_count = 0
     
     def update(self, dt: float):
         """
@@ -1251,8 +1333,7 @@ class PlayScreen:
         # Check for caravan spawning in the morning
         self._check_and_spawn_caravans()
         
-        # Update caravans
-        self._update_caravans(dt)
+        # Note: Caravans are now updated in _update_caravans_on_move() when player moves
     
     def render(self):
         """Render the play screen."""
@@ -1435,6 +1516,12 @@ class PlayScreen:
             text_surface = font.render(message, True, color)
             self.screen.blit(text_surface, (10, y_offset))
             y_offset += line_height
+        
+        # Draw prompt at the bottom if not in a prompt state
+        if not self.pending_prompt:
+            prompt_text = "> "
+            prompt_surface = font.render(prompt_text, True, (100, 255, 100))  # Green
+            self.screen.blit(prompt_surface, (10, y_offset))
         
         pygame.display.flip()
 

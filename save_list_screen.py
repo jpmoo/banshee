@@ -7,7 +7,8 @@ from typing import List, Optional, Tuple
 from save_game import get_saved_games, load_game
 from settlements import Settlement, SettlementType
 from celtic_calendar import CelticCalendar
-from datetime import datetime
+from datetime import datetime, timedelta
+from map_saver import get_map_metadata
 
 
 def find_nearest_settlement(player_x: int, player_y: int, settlements: List[Settlement]) -> Optional[Tuple[Settlement, str]]:
@@ -79,6 +80,12 @@ class SaveListScreen:
         # Back button
         self.back_button_rect = None
         
+        # Delete confirmation dialog
+        self.pending_delete_index = None
+        self.confirm_dialog_rect = None
+        self.confirm_yes_rect = None
+        self.confirm_no_rect = None
+        
         # Load saved games immediately
         self._load_saved_games()
     
@@ -110,27 +117,54 @@ class SaveListScreen:
                 )
                 game_datetime = calendar.get_full_datetime_string()
                 
-                # Get save timestamp
+                # Get save timestamp and calculate relative time
                 save_timestamp = save_data.get('save_timestamp', '')
                 if save_timestamp:
                     try:
-                        dt = datetime.fromisoformat(save_timestamp)
-                        save_datetime = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        save_dt = datetime.fromisoformat(save_timestamp)
+                        now = datetime.now()
+                        time_diff = now - save_dt
+                        
+                        # Calculate relative time
+                        if time_diff.total_seconds() < 60:
+                            save_datetime = "Just now"
+                        elif time_diff.total_seconds() < 3600:
+                            minutes = int(time_diff.total_seconds() / 60)
+                            save_datetime = f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+                        elif time_diff.days == 0:
+                            hours = int(time_diff.total_seconds() / 3600)
+                            save_datetime = f"{hours} hour{'s' if hours != 1 else ''} ago"
+                        elif time_diff.days == 1:
+                            save_datetime = "1 day ago"
+                        else:
+                            save_datetime = f"{time_diff.days} days ago"
                     except:
                         save_datetime = "Unknown"
                 else:
                     save_datetime = "Unknown"
                 
-                # Find nearest settlement
-                player_x = save_data.get('player_x', 0)
-                player_y = save_data.get('player_y', 0)
-                nearest_info = find_nearest_settlement(player_x, player_y, self.settlements)
+                # Get map name and nearest settlement info from save file
+                map_name = save_data.get('map_name')
+                nearest_settlement_info = save_data.get('nearest_settlement_info')
                 
-                if nearest_info:
-                    nearest_settlement, description = nearest_info
-                    location_text = description
+                # If not saved, try to load from map file (for legacy saves)
+                # Skip this expensive operation - legacy saves will show "Location unknown"
+                # Users can still load the game and it will work fine
+                # This avoids loading entire maps (with terrain data) just to display the save list
+                if not map_name or not nearest_settlement_info:
+                    # For legacy saves, we'll just show "Location unknown" rather than
+                    # loading entire maps which is very slow
+                    pass
+                
+                # Format location text
+                if map_name and nearest_settlement_info:
+                    location_text = f"{map_name}, near {nearest_settlement_info}"
+                elif map_name:
+                    location_text = map_name
+                elif nearest_settlement_info:
+                    location_text = f"Near {nearest_settlement_info}"
                 else:
-                    location_text = "Unknown location"
+                    location_text = "Location unknown"
                 
                 # Store display info
                 save_data['display_game_datetime'] = game_datetime
@@ -234,6 +268,12 @@ class SaveListScreen:
             location_surface = detail_font.render(location_text, True, (200, 200, 255))
             self.screen.blit(location_surface, (item_rect.x + 10, item_rect.y + 55))
             
+            # Delete/Open note
+            note_text = "[X] Delete or [ENTER] to Open"
+            note_surface = detail_font.render(note_text, True, (150, 150, 150))
+            note_x = item_rect.right - note_surface.get_width() - 10
+            self.screen.blit(note_surface, (note_x, item_rect.y + 55))
+            
             y_offset += item_height + spacing
         
         # Scroll indicators
@@ -243,6 +283,88 @@ class SaveListScreen:
         if visible_end < len(self.saved_games):
             down_arrow = detail_font.render("↓", True, (150, 150, 150))
             self.screen.blit(down_arrow, (screen_width - 30, screen_height - 100))
+        
+        # Draw confirmation dialog if pending delete
+        if self.pending_delete_index is not None:
+            self._draw_delete_confirmation_dialog()
+    
+    def _draw_delete_confirmation_dialog(self):
+        """Draw the delete confirmation dialog."""
+        if self.pending_delete_index is None or self.pending_delete_index >= len(self.saved_games):
+            return
+        
+        screen_width = self.screen.get_width()
+        screen_height = self.screen.get_height()
+        
+        filepath, save_data = self.saved_games[self.pending_delete_index]
+        game_datetime = save_data.get('display_game_datetime', 'Unknown')
+        
+        # Dialog dimensions
+        dialog_width = 500
+        dialog_height = 200
+        dialog_x = (screen_width - dialog_width) // 2
+        dialog_y = (screen_height - dialog_height) // 2
+        
+        self.confirm_dialog_rect = pygame.Rect(dialog_x, dialog_y, dialog_width, dialog_height)
+        
+        # Draw dialog background
+        pygame.draw.rect(self.screen, (40, 40, 50), self.confirm_dialog_rect)
+        pygame.draw.rect(self.screen, (255, 100, 100), self.confirm_dialog_rect, 3)
+        
+        # Dialog text
+        font = pygame.font.Font(None, 28)
+        title_font = pygame.font.Font(None, 32)
+        
+        title_text = title_font.render("Delete Save Game?", True, (255, 255, 255))
+        title_rect = title_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 40))
+        self.screen.blit(title_text, title_rect)
+        
+        confirm_text = font.render(f"Delete save from {game_datetime}?", True, (200, 200, 200))
+        confirm_rect = confirm_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 80))
+        self.screen.blit(confirm_text, confirm_rect)
+        
+        # Yes button
+        yes_text = font.render("Yes (Y)", True, (255, 255, 255))
+        yes_width = 120
+        yes_height = 40
+        yes_x = dialog_x + dialog_width // 2 - yes_width - 10
+        yes_y = dialog_y + dialog_height - yes_height - 20
+        self.confirm_yes_rect = pygame.Rect(yes_x, yes_y, yes_width, yes_height)
+        pygame.draw.rect(self.screen, (200, 60, 60), self.confirm_yes_rect)
+        pygame.draw.rect(self.screen, (255, 255, 255), self.confirm_yes_rect, 2)
+        yes_text_rect = yes_text.get_rect(center=self.confirm_yes_rect.center)
+        self.screen.blit(yes_text, yes_text_rect)
+        
+        # No button
+        no_text = font.render("No (N)", True, (255, 255, 255))
+        no_width = 120
+        no_height = 40
+        no_x = dialog_x + dialog_width // 2 + 10
+        no_y = dialog_y + dialog_height - no_height - 20
+        self.confirm_no_rect = pygame.Rect(no_x, no_y, no_width, no_height)
+        pygame.draw.rect(self.screen, (60, 60, 80), self.confirm_no_rect)
+        pygame.draw.rect(self.screen, (255, 255, 255), self.confirm_no_rect, 2)
+        no_text_rect = no_text.get_rect(center=self.confirm_no_rect.center)
+        self.screen.blit(no_text, no_text_rect)
+    
+    def _delete_save_file(self, index: int):
+        """Delete a save file."""
+        if index < 0 or index >= len(self.saved_games):
+            return
+        
+        filepath, save_data = self.saved_games[index]
+        
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+                print(f"Deleted save file: {filepath}")
+                # Reload saved games
+                self._load_saved_games()
+                # Adjust selected index if needed
+                if self.selected_save_index >= len(self.saved_games):
+                    self.selected_save_index = max(0, len(self.saved_games) - 1)
+        except Exception as e:
+            print(f"Error deleting save file: {e}")
     
     def handle_event(self, event: pygame.event.Event) -> Optional[Tuple[str, str]]:
         """
@@ -253,6 +375,28 @@ class SaveListScreen:
             'back' if should go back,
             None otherwise
         """
+        # Handle confirmation dialog first
+        if self.pending_delete_index is not None:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_y:
+                    # Confirm delete
+                    self._delete_save_file(self.pending_delete_index)
+                    self.pending_delete_index = None
+                elif event.key == pygame.K_n or event.key == pygame.K_ESCAPE:
+                    # Cancel delete
+                    self.pending_delete_index = None
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Left mouse button
+                    mouse_x, mouse_y = event.pos
+                    if self.confirm_yes_rect and self.confirm_yes_rect.collidepoint(mouse_x, mouse_y):
+                        # Confirm delete
+                        self._delete_save_file(self.pending_delete_index)
+                        self.pending_delete_index = None
+                    elif self.confirm_no_rect and self.confirm_no_rect.collidepoint(mouse_x, mouse_y):
+                        # Cancel delete
+                        self.pending_delete_index = None
+            return None  # Don't process other events while dialog is open
+        
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 return 'back'
@@ -267,6 +411,10 @@ class SaveListScreen:
                 if self.saved_games and 0 <= self.selected_save_index < len(self.saved_games):
                     filepath, save_data = self.saved_games[self.selected_save_index]
                     return ('load', filepath)
+            elif event.key == pygame.K_x:
+                # Delete selected save
+                if self.saved_games and 0 <= self.selected_save_index < len(self.saved_games):
+                    self.pending_delete_index = self.selected_save_index
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left mouse button
                 mouse_x, mouse_y = event.pos

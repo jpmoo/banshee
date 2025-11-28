@@ -4,9 +4,11 @@ Save and load game state.
 import os
 import pickle
 import gzip
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Tuple, List, Dict
 from celtic_calendar import CelticCalendar
+from map_saver import get_map_name, load_map
+from settlements import Settlement, SettlementType
 
 
 def save_game(map_filepath: str, player_x: int, player_y: int, 
@@ -78,9 +80,39 @@ def save_game(map_filepath: str, player_x: int, player_y: int,
                     settlement_key = (settlement.x, settlement.y, settlement.settlement_type.value)
                     settlement_economy[settlement_key] = economy_data
         
+        # Get map name from map file
+        map_name = None
+        if map_filepath:
+            map_name = get_map_name(map_filepath)
+        
+        # Find nearest settlement for location info
+        nearest_settlement_info = None
+        if settlements and player_x is not None and player_y is not None:
+            # Find nearest city or town
+            cities_and_towns = [s for s in settlements if s.settlement_type in (SettlementType.CITY, SettlementType.TOWN)]
+            if cities_and_towns:
+                nearest = None
+                min_distance = float('inf')
+                for settlement in cities_and_towns:
+                    sx, sy = settlement.get_position()
+                    distance = abs(sx - player_x) + abs(sy - player_y)
+                    if distance < min_distance:
+                        min_distance = distance
+                        nearest = settlement
+                
+                if nearest:
+                    if nearest.settlement_type == SettlementType.CITY:
+                        nearest_settlement_info = f"the city of {nearest.name}" if nearest.name else "a city"
+                    elif nearest.vassal_to is None:
+                        nearest_settlement_info = f"the free town of {nearest.name}" if nearest.name else "a free town"
+                    else:
+                        nearest_settlement_info = f"the town of {nearest.name}" if nearest.name else "a town"
+        
         # Prepare save data
         save_data = {
             'map_filepath': relative_map_path,  # Store relative path
+            'map_name': map_name,  # Store map name for display
+            'nearest_settlement_info': nearest_settlement_info,  # Store nearest settlement info
             'player_x': player_x,
             'player_y': player_y,
             'calendar_year': calendar.year,

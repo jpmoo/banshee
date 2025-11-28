@@ -4,22 +4,186 @@ Displays the map with colored tiles representing different terrain types.
 """
 import pygame
 import math
+import os
+import json
 from typing import List, Optional
-from terrain import Terrain
+from terrain import Terrain, TerrainType
 from settlements import Settlement, SettlementType
 
 
 class MapRenderer:
     """Renders the map to a pygame surface."""
     
-    def __init__(self, tile_size: int = 32):
+    def __init__(self, tile_size: int = 32, tileset_path: str = "16x16_old_map_Denzi090523-1.PNG"):
         """
         Initialize the map renderer.
         
         Args:
-            tile_size: Size of each tile in pixels
+            tile_size: Size of each tile in pixels for display (will scale tileset to this size)
+            tileset_path: Path to the tileset image file
         """
-        self.tile_size = tile_size
+        self.tile_size = tile_size  # Display tile size
+        self.tileset = None
+        self.tileset_path = tileset_path
+        self.tileset_tile_size = None  # Native tileset tile size (will be detected)
+        self.tiles_per_row = 0  # Will be calculated when tileset is loaded
+        
+        # Load tileset if available
+        self._load_tileset()
+        
+        # Load terrain to tile mappings from file, or use defaults
+        self.terrain_tile_map = self._load_tile_mappings()
+    
+    def _load_tileset(self):
+        """Load the tileset image and detect its native tile size."""
+        try:
+            if os.path.exists(self.tileset_path):
+                self.tileset = pygame.image.load(self.tileset_path).convert_alpha()
+                tileset_width = self.tileset.get_width()
+                tileset_height = self.tileset.get_height()
+                
+                # Try to detect native tile size (common sizes: 8, 16, 32, 64)
+                # Check if width is divisible by common tile sizes
+                possible_sizes = [8, 16, 32, 64]
+                detected_size = None
+                
+                for size in possible_sizes:
+                    if tileset_width % size == 0 and tileset_height % size == 0:
+                        # Check if it looks like a reasonable grid (at least 4 tiles)
+                        if tileset_width // size >= 4:
+                            detected_size = size
+                            break
+                
+                # If we couldn't detect, try to infer from filename or use 16 as default
+                if detected_size is None:
+                    # Check filename for size hint (e.g., "16x16_tileset.png")
+                    import re
+                    match = re.search(r'(\d+)x\d+', self.tileset_path, re.IGNORECASE)
+                    if match:
+                        detected_size = int(match.group(1))
+                    else:
+                        detected_size = 16  # Default assumption
+                
+                self.tileset_tile_size = detected_size
+                self.tiles_per_row = tileset_width // self.tileset_tile_size
+                tiles_per_col = tileset_height // self.tileset_tile_size
+                
+                print(f"Loaded tileset: {self.tileset_path}")
+                print(f"  Dimensions: {tileset_width}x{tileset_height} pixels")
+                print(f"  Native tile size: {self.tileset_tile_size}x{self.tileset_tile_size}")
+                print(f"  Grid: {self.tiles_per_row} tiles wide x {tiles_per_col} tiles tall")
+                print(f"  Total tiles: {self.tiles_per_row * tiles_per_col}")
+                if self.tileset_tile_size != self.tile_size:
+                    print(f"  Scaling tiles from {self.tileset_tile_size}px to {self.tile_size}px for display")
+            else:
+                print(f"Tileset not found: {self.tileset_path}, using colored rectangles")
+                self.tileset = None
+                self.tileset_tile_size = None
+        except Exception as e:
+            print(f"Error loading tileset: {e}")
+            self.tileset = None
+            self.tileset_tile_size = None
+    
+    def _load_tile_mappings(self) -> dict:
+        """
+        Load terrain to tile mappings from JSON file.
+        Falls back to default mappings if file doesn't exist.
+        
+        Returns:
+            Dictionary mapping TerrainType to (tile_x, tile_y) tuples
+        """
+        mappings_file = "tileset_mappings.json"
+        
+        # Default mappings (fallback)
+        default_mappings = {
+            # Water tiles (typically early in row 0)
+            TerrainType.DEEP_WATER: (0, 0),
+            TerrainType.SHALLOW_WATER: (1, 0),
+            TerrainType.RIVER: (2, 0),
+            
+            # Land terrain (typically after water in row 0)
+            TerrainType.GRASSLAND: (4, 0),
+            TerrainType.HILLS: (8, 0),
+            TerrainType.MOUNTAIN: (12, 0),
+            TerrainType.FOREST: (16, 0),
+            TerrainType.FORESTED_HILL: (20, 0),
+        }
+        
+        # Try to load from file
+        if os.path.exists(mappings_file):
+            try:
+                with open(mappings_file, 'r') as f:
+                    json_data = json.load(f)
+                
+                mappings = {}
+                for terrain_name, coords in json_data.items():
+                    # Find matching TerrainType
+                    for terrain_type in TerrainType:
+                        if terrain_type.value == terrain_name:
+                            mappings[terrain_type] = tuple(coords)
+                            break
+                
+                # Merge with defaults for any missing terrain types
+                for terrain_type, default_coords in default_mappings.items():
+                    if terrain_type not in mappings:
+                        mappings[terrain_type] = default_coords
+                
+                print(f"  Loaded terrain mappings from {mappings_file}")
+                print(f"  Terrain mappings:")
+                for terrain_type, (tile_x, tile_y) in sorted(mappings.items(), key=lambda x: x[0].value):
+                    print(f"    {terrain_type.value}: tile ({tile_x}, {tile_y})")
+                
+                return mappings
+            except Exception as e:
+                print(f"  Error loading mappings from {mappings_file}: {e}")
+                print(f"  Using default mappings")
+        else:
+            print(f"  Mappings file not found: {mappings_file}")
+            print(f"  Using default mappings")
+            print(f"  Run 'python select_tileset_tiles.py' to create mappings file")
+        
+        # Return defaults
+        print(f"  Terrain mappings (defaults):")
+        for terrain_type, (tile_x, tile_y) in sorted(default_mappings.items(), key=lambda x: x[0].value):
+            print(f"    {terrain_type.value}: tile ({tile_x}, {tile_y})")
+        
+        return default_mappings
+    
+    def _get_tile_surface(self, terrain_type: TerrainType) -> Optional[pygame.Surface]:
+        """
+        Get the tile surface for a terrain type from the tileset.
+        Extracts at native tileset size and scales to display size.
+        
+        Args:
+            terrain_type: The terrain type
+            
+        Returns:
+            pygame.Surface of the tile scaled to display size, or None if tileset not available
+        """
+        if not self.tileset or self.tileset_tile_size is None:
+            return None
+        
+        if terrain_type not in self.terrain_tile_map:
+            return None
+        
+        tile_x, tile_y = self.terrain_tile_map[terrain_type]
+        
+        # Calculate source rect in tileset (using native tileset tile size)
+        source_x = tile_x * self.tileset_tile_size
+        source_y = tile_y * self.tileset_tile_size
+        source_rect = pygame.Rect(source_x, source_y, self.tileset_tile_size, self.tileset_tile_size)
+        
+        # Extract tile from tileset at native size
+        native_tile = pygame.Surface((self.tileset_tile_size, self.tileset_tile_size), pygame.SRCALPHA)
+        native_tile.blit(self.tileset, (0, 0), source_rect)
+        
+        # Scale to display size if needed
+        if self.tileset_tile_size != self.tile_size:
+            tile_surface = pygame.transform.scale(native_tile, (self.tile_size, self.tile_size))
+        else:
+            tile_surface = native_tile
+        
+        return tile_surface
     
     def render_map(self, map_data: List[List[Terrain]], surface: pygame.Surface, 
                    camera_x: int = 0, camera_y: int = 0, 
@@ -68,7 +232,6 @@ class MapRenderer:
                 is_visible = visible_tiles is None or (x, y) in visible_tiles
                 
                 terrain = map_data[y][x]
-                color = terrain.get_color()
                 
                 # Calculate screen position
                 screen_x = (x - camera_x) * self.tile_size
@@ -77,24 +240,45 @@ class MapRenderer:
                 # Draw tile
                 rect = pygame.Rect(screen_x, screen_y, self.tile_size, self.tile_size)
                 
-                # Fog of war logic:
-                # 1. Visible tiles: normal color (not darkened)
-                # 2. Unexplored tiles: completely black
-                # 3. Explored but not visible tiles: darkened
-                if is_visible:
-                    # Visible tiles: always show normal color (never darkened)
-                    pygame.draw.rect(surface, color, rect)
-                elif not is_explored:
-                    # Unexplored: completely black
-                    pygame.draw.rect(surface, (0, 0, 0), rect)
-                else:
-                    # Explored but not visible: darken the color (fog of war)
-                    # Darken by 70% (keep 30% of original brightness)
-                    fog_color = tuple(max(0, int(c * 0.3)) for c in color)
-                    pygame.draw.rect(surface, fog_color, rect)
+                # Try to use tileset image, fall back to colored rectangle
+                tile_surface = self._get_tile_surface(terrain.terrain_type)
                 
-                # Draw border for better visibility (only if explored)
-                if is_explored:
+                if tile_surface:
+                    # Use tileset tile
+                    # Fog of war logic:
+                    if is_visible:
+                        # Visible tiles: show normal tile
+                        surface.blit(tile_surface, (screen_x, screen_y))
+                    elif not is_explored:
+                        # Unexplored: completely black
+                        pygame.draw.rect(surface, (0, 0, 0), rect)
+                    else:
+                        # Explored but not visible: darken the tile
+                        darkened_tile = tile_surface.copy()
+                        darkened_tile.fill((0, 0, 0, 180), special_flags=pygame.BLEND_RGBA_MULT)
+                        surface.blit(darkened_tile, (screen_x, screen_y))
+                else:
+                    # Fall back to colored rectangles
+                    color = terrain.get_color()
+                    
+                    # Fog of war logic:
+                    # 1. Visible tiles: normal color (not darkened)
+                    # 2. Unexplored tiles: completely black
+                    # 3. Explored but not visible tiles: darkened
+                    if is_visible:
+                        # Visible tiles: always show normal color (never darkened)
+                        pygame.draw.rect(surface, color, rect)
+                    elif not is_explored:
+                        # Unexplored: completely black
+                        pygame.draw.rect(surface, (0, 0, 0), rect)
+                    else:
+                        # Explored but not visible: darken the color (fog of war)
+                        # Darken by 70% (keep 30% of original brightness)
+                        fog_color = tuple(max(0, int(c * 0.3)) for c in color)
+                        pygame.draw.rect(surface, fog_color, rect)
+                
+                # Draw border for better visibility (only if explored and using colored rectangles)
+                if is_explored and not tile_surface:
                     border_color = (0, 0, 0) if is_visible else (20, 20, 20)
                     pygame.draw.rect(surface, border_color, rect, 1)
         

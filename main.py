@@ -21,7 +21,7 @@ from save_game import load_game
 # Constants
 SCREEN_WIDTH = 1024
 SCREEN_HEIGHT = 768
-TILE_SIZE = 32
+TILE_SIZE = 32  # Display tile size (tilesets will be scaled to this size)
 MAP_WIDTH = 4000
 MAP_HEIGHT = 1000
 
