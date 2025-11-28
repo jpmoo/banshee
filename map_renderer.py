@@ -26,7 +26,10 @@ class MapRenderer:
                    settlements: Optional[List[Settlement]] = None,
                    selected_village: Optional[Settlement] = None,
                    selected_town: Optional[Settlement] = None,
-                   selected_city: Optional[Settlement] = None):
+                   selected_city: Optional[Settlement] = None,
+                   explored_tiles: Optional[set] = None,
+                   visible_tiles: Optional[set] = None,
+                   caravans: Optional[List] = None):
         """
         Render the map to a pygame surface.
         
@@ -39,6 +42,8 @@ class MapRenderer:
             selected_village: Currently selected village (for showing connections)
             selected_town: Currently selected town (for showing connections)
             selected_city: Currently selected city (for showing connections)
+            explored_tiles: Set of (x, y) tuples for explored tiles (for fog of war)
+            visible_tiles: Set of (x, y) tuples for currently visible tiles (for fog of war)
         """
         map_height = len(map_data)
         map_width = len(map_data[0]) if map_height > 0 else 0
@@ -58,6 +63,10 @@ class MapRenderer:
         # Draw each visible tile
         for y in range(start_y, end_y):
             for x in range(start_x, end_x):
+                # Check fog of war
+                is_explored = explored_tiles is None or (x, y) in explored_tiles
+                is_visible = visible_tiles is None or (x, y) in visible_tiles
+                
                 terrain = map_data[y][x]
                 color = terrain.get_color()
                 
@@ -67,17 +76,38 @@ class MapRenderer:
                 
                 # Draw tile
                 rect = pygame.Rect(screen_x, screen_y, self.tile_size, self.tile_size)
-                pygame.draw.rect(surface, color, rect)
                 
-                # Draw border for better visibility
-                pygame.draw.rect(surface, (0, 0, 0), rect, 1)
+                # Fog of war logic:
+                # 1. Visible tiles: normal color (not darkened)
+                # 2. Unexplored tiles: completely black
+                # 3. Explored but not visible tiles: darkened
+                if is_visible:
+                    # Visible tiles: always show normal color (never darkened)
+                    pygame.draw.rect(surface, color, rect)
+                elif not is_explored:
+                    # Unexplored: completely black
+                    pygame.draw.rect(surface, (0, 0, 0), rect)
+                else:
+                    # Explored but not visible: darken the color (fog of war)
+                    # Darken by 70% (keep 30% of original brightness)
+                    fog_color = tuple(max(0, int(c * 0.3)) for c in color)
+                    pygame.draw.rect(surface, fog_color, rect)
+                
+                # Draw border for better visibility (only if explored)
+                if is_explored:
+                    border_color = (0, 0, 0) if is_visible else (20, 20, 20)
+                    pygame.draw.rect(surface, border_color, rect, 1)
         
-        # Draw settlements
+        # Draw settlements (only if visible)
         if settlements:
             for settlement in settlements:
                 x, y = settlement.get_position()
-                # Only draw if settlement is visible
+                # Only draw if settlement is on screen and visible
                 if start_x <= x < end_x and start_y <= y < end_y:
+                    # Check if settlement is visible (fog of war)
+                    is_visible = visible_tiles is None or (x, y) in visible_tiles
+                    if not is_visible:
+                        continue  # Skip drawing if not visible
                     screen_x = (x - camera_x) * self.tile_size
                     screen_y = (y - camera_y) * self.tile_size
                     
@@ -124,6 +154,66 @@ class MapRenderer:
                         pygame.draw.polygon(surface, (255, 255, 255), points, 3)  # White border
                         # Add center dot
                         pygame.draw.circle(surface, (255, 215, 0), (center_x, center_y), 4)  # Gold center
+        
+        # Draw caravans
+        if caravans:
+            for caravan in caravans:
+                # Only draw if caravan is visible (in explored/visible tiles)
+                caravan_x, caravan_y = caravan.get_tile_position()
+                if explored_tiles is None or (caravan_x, caravan_y) in explored_tiles:
+                    # Check if caravan is on screen
+                    if start_x <= caravan_x < end_x and start_y <= caravan_y < end_y:
+                        screen_x = (caravan_x - camera_x) * self.tile_size
+                        screen_y = (caravan_y - camera_y) * self.tile_size
+                        
+                        # Draw caravan as a small brown rectangle with a border
+                        caravan_size = self.tile_size // 3
+                        center_x = screen_x + self.tile_size // 2
+                        center_y = screen_y + self.tile_size // 2
+                        
+                        # Draw caravan (brown/beige color)
+                        caravan_rect = pygame.Rect(
+                            center_x - caravan_size // 2,
+                            center_y - caravan_size // 2,
+                            caravan_size,
+                            caravan_size
+                        )
+                        pygame.draw.rect(surface, (139, 90, 43), caravan_rect)  # Brown
+                        pygame.draw.rect(surface, (255, 255, 200), caravan_rect, 2)  # Light border
+        
+        # Draw arrows for selected settlements
+        if selected_village and selected_village.vassal_to:
+            # Draw arrow from village to its town
+            self._draw_arrow_between_settlements(surface, selected_village, selected_village.vassal_to,
+                                                 camera_x, camera_y, (255, 255, 0),  # Yellow
+                                                 selected_village.supplies_resource or "Unknown")
+        
+        if selected_town:
+            # Draw arrows from all vassal villages to the town
+            for village in selected_town.vassal_villages:
+                resource = village.supplies_resource or "Unknown"
+                self._draw_arrow_between_settlements(surface, village, selected_town,
+                                                     camera_x, camera_y, (255, 255, 0),  # Yellow
+                                                     resource)
+            # Draw arrow to city if town is vassal to a city
+            if selected_town.vassal_to and selected_town.vassal_to.settlement_type == SettlementType.CITY:
+                self._draw_arrow_between_settlements(surface, selected_town, selected_town.vassal_to,
+                                                     camera_x, camera_y, (200, 100, 255),  # Purple
+                                                     "Vassal")
+        
+        if selected_city:
+            # Draw entire network: villages to towns, towns to city
+            for town in selected_city.vassal_towns:
+                # Draw arrow from town to city
+                self._draw_arrow_between_settlements(surface, town, selected_city,
+                                                     camera_x, camera_y, (200, 100, 255),  # Purple
+                                                     "Vassal")
+                # Draw arrows from town's villages to town
+                for village in town.vassal_villages:
+                    resource = village.supplies_resource or "Unknown"
+                    self._draw_arrow_between_settlements(surface, village, town,
+                                                         camera_x, camera_y, (255, 255, 0),  # Yellow
+                                                         resource)
     
     def get_map_pixel_size(self, map_data: List[List[Terrain]]) -> tuple:
         """
@@ -202,31 +292,25 @@ class MapRenderer:
                         center_y = screen_y + overview_tile_size // 2
                         
                         if settlement.settlement_type.value == "town":
-                            # Towns: Draw as a highlighted square in overview with bright border
-                            if overview_tile_size >= 3:
-                                size = max(3, int(overview_tile_size * 0.7))
-                                town_rect = pygame.Rect(
-                                    center_x - size // 2,
-                                    center_y - size // 2,
-                                    size,
-                                    size
-                                )
-                                pygame.draw.rect(surface, (60, 60, 60), town_rect)  # Dark gray
-                                pygame.draw.rect(surface, (255, 255, 0), town_rect, 2)  # Bright yellow border for highlighting
-                            elif overview_tile_size >= 2:
-                                # Smaller overview - still draw with highlight
-                                size = 2
-                                town_rect = pygame.Rect(
-                                    center_x - size // 2,
-                                    center_y - size // 2,
-                                    size,
-                                    size
-                                )
-                                pygame.draw.rect(surface, (60, 60, 60), town_rect)
-                                pygame.draw.rect(surface, (255, 255, 0), town_rect, 1)  # Yellow border
-                            else:
-                                # For 1-pixel overview, use bright yellow to stand out
-                                surface.set_at((center_x, center_y), (255, 255, 0))
+                            # Towns: Always draw as large, prominent squares in overview (10x10 pixels with glow)
+                            size = 10  # Fixed large size for visibility
+                            # Draw yellow glow first
+                            glow_rect = pygame.Rect(
+                                center_x - size // 2 - 2,
+                                center_y - size // 2 - 2,
+                                size + 4,
+                                size + 4
+                            )
+                            pygame.draw.rect(surface, (255, 255, 0), glow_rect)  # Bright yellow glow
+                            # Draw town square
+                            town_rect = pygame.Rect(
+                                center_x - size // 2,
+                                center_y - size // 2,
+                                size,
+                                size
+                            )
+                            pygame.draw.rect(surface, (60, 60, 60), town_rect)  # Dark gray
+                            pygame.draw.rect(surface, (255, 255, 255), town_rect, 2)  # Bright white border
                         elif settlement.settlement_type.value == "village":
                             # Villages: Draw as a small circle in overview (only if tile size is large enough)
                             if overview_tile_size >= 2:
@@ -234,68 +318,25 @@ class MapRenderer:
                                 pygame.draw.circle(surface, (160, 120, 80), 
                                                  (center_x, center_y), radius)  # Medium brown
                         elif settlement.settlement_type.value == "city":
-                            # Cities: Draw as a star/pentagon in overview
-                            if overview_tile_size >= 3:
-                                size = 16  # Fixed size for cities in overview
-                                # Draw pentagon/star
-                                points = []
-                                for i in range(5):
-                                    angle = (i * 2 * math.pi / 5) - (math.pi / 2)
-                                    px = center_x + size // 2 * math.cos(angle)
-                                    py = center_y + size // 2 * math.sin(angle)
-                                    points.append((px, py))
-                                # Gold glow effect
-                                glow_points = []
-                                for i in range(5):
-                                    angle = (i * 2 * math.pi / 5) - (math.pi / 2)
-                                    px = center_x + (size // 2 + 4) * math.cos(angle)
-                                    py = center_y + (size // 2 + 4) * math.sin(angle)
-                                    glow_points.append((px, py))
-                                pygame.draw.polygon(surface, (255, 215, 0), glow_points)  # Gold glow
-                                pygame.draw.polygon(surface, (205, 127, 50), points)  # Bronze city
-                                pygame.draw.polygon(surface, (255, 255, 255), points, 2)  # White border
-                            elif overview_tile_size >= 2:
-                                # Smaller overview - still draw city
-                                size = 4
-                                pygame.draw.circle(surface, (255, 215, 0), (center_x, center_y), size + 1)  # Gold glow
-                                pygame.draw.circle(surface, (205, 127, 50), (center_x, center_y), size)  # Bronze
-                            else:
-                                # For 1-pixel overview, use bright gold
-                                surface.set_at((center_x, center_y), (255, 215, 0))
-        
-        # Draw arrows for selected settlements
-        if selected_village and selected_village.vassal_to:
-            # Draw arrow from village to its town
-            self._draw_arrow_between_settlements(surface, selected_village, selected_village.vassal_to,
-                                                 camera_x, camera_y, (255, 255, 0),  # Yellow
-                                                 selected_village.supplies_resource or "Unknown")
-        
-        if selected_town:
-            # Draw arrows from all vassal villages to the town
-            for village in selected_town.vassal_villages:
-                resource = village.supplies_resource or "Unknown"
-                self._draw_arrow_between_settlements(surface, village, selected_town,
-                                                     camera_x, camera_y, (255, 255, 0),  # Yellow
-                                                     resource)
-            # Draw arrow to city if town is vassal to a city
-            if selected_town.vassal_to and selected_town.vassal_to.settlement_type == SettlementType.CITY:
-                self._draw_arrow_between_settlements(surface, selected_town, selected_town.vassal_to,
-                                                     camera_x, camera_y, (200, 100, 255),  # Purple
-                                                     "Vassal")
-        
-        if selected_city:
-            # Draw entire network: villages to towns, towns to city
-            for town in selected_city.vassal_towns:
-                # Draw arrow from town to city
-                self._draw_arrow_between_settlements(surface, town, selected_city,
-                                                     camera_x, camera_y, (200, 100, 255),  # Purple
-                                                     "Vassal")
-                # Draw arrows from town's villages to town
-                for village in town.vassal_villages:
-                    resource = village.supplies_resource or "Unknown"
-                    self._draw_arrow_between_settlements(surface, village, town,
-                                                         camera_x, camera_y, (255, 255, 0),  # Yellow
-                                                         resource)
+                            # Cities: Always draw as large, prominent star/pentagon in overview (16x16 with glow)
+                            size = 16  # Fixed large size for visibility
+                            # Draw pentagon/star
+                            points = []
+                            for i in range(5):
+                                angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                                px = center_x + size // 2 * math.cos(angle)
+                                py = center_y + size // 2 * math.sin(angle)
+                                points.append((px, py))
+                            # Gold glow effect (larger)
+                            glow_points = []
+                            for i in range(5):
+                                angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                                px = center_x + (size // 2 + 4) * math.cos(angle)
+                                py = center_y + (size // 2 + 4) * math.sin(angle)
+                                glow_points.append((px, py))
+                            pygame.draw.polygon(surface, (255, 215, 0), glow_points)  # Bright gold glow
+                            pygame.draw.polygon(surface, (205, 127, 50), points)  # Bronze city
+                            pygame.draw.polygon(surface, (255, 255, 255), points, 2)  # White border
     
     def _draw_arrow_between_settlements(self, surface: pygame.Surface, 
                                        settlement1: Settlement, settlement2: Settlement,
@@ -337,55 +378,19 @@ class MapRenderer:
         dx_norm = dx / length
         dy_norm = dy / length
         
-        # Clip line to screen bounds using Liang-Barsky algorithm (simplified)
-        # Calculate intersection with screen edges
-        t0 = 0.0
-        t1 = 1.0
+        # Draw line - always draw, even if off-screen (pygame will clip)
+        pygame.draw.line(surface, color, (int(screen_x1), int(screen_y1)), (int(screen_x2), int(screen_y2)), 3)
         
-        # Check each edge
-        if dx != 0:
-            t_left = -screen_x1 / dx
-            t_right = (screen_width - screen_x1) / dx
-            if dx < 0:
-                t0 = max(t0, t_left)
-                t1 = min(t1, t_right)
-            else:
-                t0 = max(t0, t_right)
-                t1 = min(t1, t_left)
-        
-        if dy != 0:
-            t_top = -screen_y1 / dy
-            t_bottom = (screen_height - screen_y1) / dy
-            if dy < 0:
-                t0 = max(t0, t_top)
-                t1 = min(t1, t_bottom)
-            else:
-                t0 = max(t0, t_bottom)
-                t1 = min(t1, t_top)
-        
-        # If line doesn't intersect screen, don't draw
-        if t0 >= t1:
-            return
-        
-        # Calculate clipped endpoints
-        clip_x1 = screen_x1 + t0 * dx
-        clip_y1 = screen_y1 + t0 * dy
-        clip_x2 = screen_x1 + t1 * dx
-        clip_y2 = screen_y1 + t1 * dy
-        
-        # Draw line (pygame will clip automatically, but we've pre-clipped for arrowhead)
-        pygame.draw.line(surface, color, (clip_x1, clip_y1), (clip_x2, clip_y2), 2)
-        
-        # Draw arrowhead at target end (slightly before the end to avoid overlap)
-        arrow_size = 8
+        # Draw arrowhead at target end
+        arrow_size = 10
         angle = math.atan2(dy, dx)
         
-        # Position arrowhead slightly before the target
-        arrow_offset = min(self.tile_size // 2, length * 0.1)
-        arrow_x = clip_x2 - dx_norm * arrow_offset
-        arrow_y = clip_y2 - dy_norm * arrow_offset
+        # Position arrowhead slightly before the target (on the line, closer to target)
+        arrow_offset = min(self.tile_size // 2 + 5, length * 0.15)
+        arrow_x = screen_x2 - dx_norm * arrow_offset
+        arrow_y = screen_y2 - dy_norm * arrow_offset
         
-        # Draw arrowhead
+        # Draw arrowhead (always draw, even if partially off-screen)
         arrow_points = [
             (arrow_x, arrow_y),
             (arrow_x - arrow_size * math.cos(angle - math.pi / 6),
@@ -396,8 +401,8 @@ class MapRenderer:
         pygame.draw.polygon(surface, color, arrow_points)
         
         # Draw label at midpoint (only if visible)
-        mid_x = int((clip_x1 + clip_x2) / 2)
-        mid_y = int((clip_y1 + clip_y2) / 2)
+        mid_x = int((screen_x1 + screen_x2) / 2)
+        mid_y = int((screen_y1 + screen_y2) / 2)
         
         if 0 <= mid_x < screen_width and 0 <= mid_y < screen_height:
             font = pygame.font.Font(None, 20)
@@ -420,8 +425,47 @@ class MapRenderer:
         screen_width = surface.get_width()
         screen_height = surface.get_height()
         
-        dialog_width = 300
-        dialog_height = 400
+        # Fonts
+        title_font = pygame.font.Font(None, 32)
+        body_font = pygame.font.Font(None, 24)
+        small_font = pygame.font.Font(None, 20)
+        
+        # Calculate required width
+        town_name = town.name if town.name else "Unnamed Town"
+        title_width = title_font.size(town_name)[0]
+        
+        # Calculate width for status line
+        if town.vassal_to and town.vassal_to.settlement_type == SettlementType.CITY:
+            city_name = town.vassal_to.name if town.vassal_to.name else "Unnamed City"
+            status_width = small_font.size(f"Vassal to: {city_name}")[0]
+        else:
+            status_width = small_font.size("Status: Independent")[0]
+        
+        # Calculate width for villages
+        max_village_width = 0
+        for village in town.vassal_villages:
+            village_name = village.name if village.name else "Unnamed Village"
+            resource = village.supplies_resource if village.supplies_resource else "Unknown"
+            village_line_width = small_font.size(f"• {village_name}")[0]
+            resource_line_width = small_font.size(f"  Supplies: {resource}")[0]
+            max_village_width = max(max_village_width, village_line_width, resource_line_width)
+        
+        header_width = body_font.size("Vassal Villages:")[0]
+        close_width = small_font.size("Click again to close")[0]
+        
+        # Calculate dialog width (padding: 20 on each side, plus 40 for indentation)
+        dialog_width = max(300, max(title_width, status_width, max_village_width + 40, header_width, close_width) + 40)
+        dialog_width = min(dialog_width, int(screen_width * 0.9))  # Max 90% of screen width
+        
+        # Calculate required height
+        base_height = 80  # Title + spacing
+        status_height = 25  # Status line
+        header_height = 30  # Header + spacing
+        village_height = 45  # Per village (name + resource + spacing)
+        close_height = 30  # Close instruction + spacing
+        content_height = base_height + status_height + header_height + len(town.vassal_villages) * village_height + close_height
+        dialog_height = min(max(200, content_height), int(screen_height * 0.9))  # Min 200, max 90% of screen
+        
         dialog_x = 10  # Lower-left corner
         dialog_y = screen_height - dialog_height - 10
         
@@ -431,11 +475,6 @@ class MapRenderer:
         pygame.draw.rect(surface, (200, 200, 200), dialog_rect, 2)
         
         # Draw title
-        title_font = pygame.font.Font(None, 32)
-        body_font = pygame.font.Font(None, 24)
-        small_font = pygame.font.Font(None, 20)
-        
-        town_name = town.name if town.name else "Unnamed Town"
         title_text = title_font.render(town_name, True, (255, 255, 255))
         surface.blit(title_text, (dialog_x + 20, dialog_y + 20))
         
@@ -483,8 +522,56 @@ class MapRenderer:
         screen_width = surface.get_width()
         screen_height = surface.get_height()
         
-        dialog_width = 300
-        dialog_height = 400
+        # Fonts
+        title_font = pygame.font.Font(None, 32)
+        body_font = pygame.font.Font(None, 24)
+        small_font = pygame.font.Font(None, 20)
+        
+        # Calculate required width
+        city_name = city.name if city.name else "Unnamed City"
+        title_width = title_font.size(city_name)[0]
+        
+        # Calculate width for towns and villages
+        max_town_width = 0
+        max_village_width = 0
+        for town in city.vassal_towns:
+            town_name = town.name if town.name else "Unnamed Town"
+            town_line_width = small_font.size(f"• {town_name}")[0]
+            max_town_width = max(max_town_width, town_line_width)
+            
+            # Check village widths
+            for village in town.vassal_villages[:3]:  # Check first 3 villages
+                village_name = village.name if village.name else "Unnamed Village"
+                resource = village.supplies_resource if village.supplies_resource else "Unknown"
+                village_line_width = small_font.size(f"  - {village_name} ({resource})")[0]
+                max_village_width = max(max_village_width, village_line_width)
+        
+        header_width = body_font.size("Vassal Towns:")[0]
+        close_width = small_font.size("Click again to close")[0]
+        
+        # Calculate dialog width (padding: 20 on each side, plus 40 for indentation)
+        dialog_width = max(300, max(title_width, max_town_width, max_village_width + 40, header_width, close_width) + 40)
+        dialog_width = min(dialog_width, int(screen_width * 0.9))  # Max 90% of screen width
+        
+        # Calculate required height
+        base_height = 80  # Title + spacing
+        header_height = 30  # Header + spacing
+        close_height = 30  # Close instruction + spacing
+        
+        # Calculate height needed for all towns and their villages
+        town_height = 0
+        for town in city.vassal_towns:
+            town_height += 20  # Town name
+            # Show up to 3 villages per town, or all if less than 3
+            villages_to_show = min(3, len(town.vassal_villages))
+            town_height += villages_to_show * 18  # Village lines
+            if len(town.vassal_villages) > 3:
+                town_height += 18  # "... and X more" line
+            town_height += 10  # Spacing between towns
+        
+        content_height = base_height + header_height + town_height + close_height
+        dialog_height = min(max(200, content_height), int(screen_height * 0.9))  # Min 200, max 90% of screen
+        
         dialog_x = screen_width - dialog_width - 10  # Lower-right corner
         dialog_y = screen_height - dialog_height - 10
         
@@ -508,26 +595,37 @@ class MapRenderer:
         
         # Draw vassal towns and their villages
         y_offset = dialog_y + 90
-        town_count = 0
-        max_towns_visible = (dialog_height - 120) // 60  # Space for towns and some villages
+        towns_drawn = 0
         
         for town in city.vassal_towns:
-            if town_count >= max_towns_visible:
-                remaining = len(city.vassal_towns) - town_count
+            # Check if we have room for this town (at least town name + close instruction space)
+            if y_offset + 50 > dialog_y + dialog_height - 30:
+                # Not enough room, show "more" message
+                remaining = len(city.vassal_towns) - towns_drawn
                 more_text = small_font.render(f"... and {remaining} more towns", 
                                             True, (150, 150, 150))
                 surface.blit(more_text, (dialog_x + 20, y_offset))
                 break
+            
+            towns_drawn += 1
             
             town_name = town.name if town.name else "Unnamed Town"
             town_text = small_font.render(f"• {town_name}", True, (255, 255, 255))
             surface.blit(town_text, (dialog_x + 30, y_offset))
             y_offset += 20
             
-            # Show up to 3 vassal villages for this town
+            # Show up to 3 vassal villages for this town (or all if there's room)
             village_sub_count = 0
             for village in town.vassal_villages:
-                if village_sub_count >= 3:  # Limit villages shown per town
+                # Check if we have room for more villages
+                if y_offset + 20 > dialog_y + dialog_height - 30:
+                    break
+                if village_sub_count >= 3:  # Limit to 3 villages per town for readability
+                    if len(town.vassal_villages) > 3:
+                        more_villages = small_font.render(f"  ... and {len(town.vassal_villages) - 3} more villages", 
+                                                         True, (120, 120, 120))
+                        surface.blit(more_villages, (dialog_x + 40, y_offset))
+                        y_offset += 18
                     break
                 village_name = village.name if village.name else "Unnamed Village"
                 resource = village.supplies_resource if village.supplies_resource else "Unknown"
@@ -537,112 +635,112 @@ class MapRenderer:
                 village_sub_count += 1
             
             y_offset += 10  # Spacing between towns
-            town_count += 1
         
         # Draw close instruction
         close_text = small_font.render("Click again to close", True, (150, 150, 150))
         surface.blit(close_text, (dialog_x + 20, dialog_y + dialog_height - 25))
     
-    def draw_settlement_status(self, surface: pygame.Surface, settlement: Settlement):
+    def draw_village_dialogue(self, surface: pygame.Surface, village: Settlement):
         """
-        Draw a status window showing settlement information.
-        This is shown when the player (camera center) is on a settlement.
+        Draw a dialogue box showing village information.
         
         Args:
             surface: Pygame surface to draw on
-            settlement: The settlement to display information for
+            village: The village to display information for
         """
         screen_width = surface.get_width()
         screen_height = surface.get_height()
-        
-        # Status window size and position (top-right corner)
-        status_width = 350
-        status_height = 400
-        status_x = screen_width - status_width - 10
-        status_y = 10
-        
-        # Draw background
-        status_rect = pygame.Rect(status_x, status_y, status_width, status_height)
-        pygame.draw.rect(surface, (40, 40, 40), status_rect)
-        pygame.draw.rect(surface, (200, 200, 200), status_rect, 2)
         
         # Fonts
         title_font = pygame.font.Font(None, 32)
         body_font = pygame.font.Font(None, 24)
         small_font = pygame.font.Font(None, 20)
         
-        y_offset = status_y + 20
+        # Calculate required width
+        village_name = village.name if village.name else "Unnamed Village"
+        title_width = title_font.size(village_name)[0]
         
-        # Settlement name
-        settlement_name = settlement.name if settlement.name else f"Unnamed {settlement.settlement_type.value.title()}"
-        if settlement.settlement_type.value == "city":
-            title_color = (255, 215, 0)  # Gold
-        elif settlement.settlement_type.value == "town":
-            title_color = (255, 255, 255)  # White
-        else:
-            title_color = (200, 200, 200)  # Light gray
+        resource = village.supplies_resource if village.supplies_resource else "Unknown"
+        resource_label_width = body_font.size("Produces:")[0]
+        resource_text_width = small_font.size(f"• {resource}")[0]
         
-        title_text = title_font.render(settlement_name, True, title_color)
-        surface.blit(title_text, (status_x + 20, y_offset))
+        # Calculate width for town and city lines
+        max_line_width = 0
+        if village.vassal_to:
+            town_name = village.vassal_to.name if village.vassal_to.name else "Unnamed Town"
+            town_label_width = body_font.size("Supplies to:")[0]
+            town_text_width = small_font.size(f"• {town_name}")[0]
+            max_line_width = max(max_line_width, town_label_width, town_text_width)
+            
+            # Check city if applicable
+            if village.vassal_to.vassal_to and village.vassal_to.vassal_to.settlement_type == SettlementType.CITY:
+                city_name = village.vassal_to.vassal_to.name if village.vassal_to.vassal_to.name else "Unnamed City"
+                city_label_width = body_font.size("Ultimate Liege:")[0]
+                city_text_width = small_font.size(f"• {city_name}")[0]
+                max_line_width = max(max_line_width, city_label_width, city_text_width)
+        
+        close_width = small_font.size("Click again to close")[0]
+        
+        # Calculate dialog width (padding: 20 on each side, plus 30 for indentation)
+        dialog_width = max(300, max(title_width, resource_label_width, resource_text_width + 30, max_line_width + 30, close_width) + 40)
+        dialog_width = min(dialog_width, int(screen_width * 0.9))  # Max 90% of screen width
+        
+        # Calculate required height
+        base_height = 80  # Title + spacing
+        resource_section_height = 70  # Label + text + spacing
+        town_section_height = 70 if village.vassal_to else 0  # Label + text + spacing
+        city_section_height = 70 if (village.vassal_to and village.vassal_to.vassal_to and 
+                                     village.vassal_to.vassal_to.settlement_type == SettlementType.CITY) else 0
+        close_height = 30  # Close instruction + spacing
+        
+        content_height = base_height + resource_section_height + town_section_height + city_section_height + close_height
+        dialog_height = min(max(200, content_height), int(screen_height * 0.9))  # Min 200, max 90% of screen
+        
+        dialog_x = 10  # Lower-left corner
+        dialog_y = screen_height - dialog_height - 10
+        
+        # Draw background
+        dialog_rect = pygame.Rect(dialog_x, dialog_y, dialog_width, dialog_height)
+        pygame.draw.rect(surface, (40, 40, 40), dialog_rect)
+        pygame.draw.rect(surface, (200, 200, 200), dialog_rect, 2)
+        
+        # Draw title
+        title_text = title_font.render(village_name, True, (255, 255, 255))
+        surface.blit(title_text, (dialog_x + 20, dialog_y + 20))
+        
+        y_offset = dialog_y + 60
+        
+        # Show resource being produced
+        resource_label = body_font.render("Produces:", True, (200, 200, 200))
+        surface.blit(resource_label, (dialog_x + 20, y_offset))
+        y_offset += 30
+        
+        resource_text = small_font.render(f"• {resource}", True, (255, 255, 255))
+        surface.blit(resource_text, (dialog_x + 30, y_offset))
         y_offset += 40
         
-        # Village display
-        if settlement.settlement_type.value == "village":
-            if settlement.vassal_to:
-                town_name = settlement.vassal_to.name if settlement.vassal_to.name else "Unnamed Town"
-                resource = settlement.supplies_resource or "Unknown"
-                # Normalize resource name for display
-                from settlements import normalize_resource_name
-                normalized_resource = normalize_resource_name(resource)
-                status_text = small_font.render(
-                    f"Sends {normalized_resource} to {town_name} in return for protection.",
-                    True, (200, 200, 200)
-                )
-                surface.blit(status_text, (status_x + 20, y_offset))
-            return  # Villages don't have resources or trade goods
-        
-        # Vassal relationships
-        if settlement.vassal_to:
-            liege_name = settlement.vassal_to.name if settlement.vassal_to.name else "Unnamed"
-            liege_type = settlement.vassal_to.settlement_type.value.title()
-            vassal_text = body_font.render(f"Vassal to: {liege_name} ({liege_type})", True, (200, 200, 100))
-            surface.blit(vassal_text, (status_x + 20, y_offset))
-            y_offset += 30
-        
-        # Show vassals (downward relationships)
-        if settlement.settlement_type.value == "town" and settlement.vassal_villages:
-            vassal_count = len(settlement.vassal_villages)
-            vassals_text = small_font.render(f"Has {vassal_count} vassal village(s)", True, (180, 180, 180))
-            surface.blit(vassals_text, (status_x + 20, y_offset))
-            y_offset += 25
-        elif settlement.settlement_type.value == "city" and settlement.vassal_towns:
-            vassal_count = len(settlement.vassal_towns)
-            vassals_text = small_font.render(f"Has {vassal_count} vassal town(s)", True, (180, 180, 180))
-            surface.blit(vassals_text, (status_x + 20, y_offset))
-            y_offset += 25
-        
-        y_offset += 10  # Spacing
-        
-        # Resources (for towns only)
-        if settlement.settlement_type.value == "town":
-            resources_header = body_font.render("Resources:", True, (200, 200, 200))
-            surface.blit(resources_header, (status_x + 20, y_offset))
+        # Show town it's producing for
+        if village.vassal_to:
+            town_label = body_font.render("Supplies to:", True, (200, 200, 200))
+            surface.blit(town_label, (dialog_x + 20, y_offset))
             y_offset += 30
             
-            from settlements import RESOURCES
-            for resource in RESOURCES:
-                amount = settlement.resources.get(resource, 0)
-                resource_text = small_font.render(f"  {resource.title()}: {amount}", True, (255, 255, 255))
-                surface.blit(resource_text, (status_x + 30, y_offset))
-                y_offset += 22
+            town_name = village.vassal_to.name if village.vassal_to.name else "Unnamed Town"
+            town_text = small_font.render(f"• {town_name}", True, (255, 255, 255))
+            surface.blit(town_text, (dialog_x + 30, y_offset))
+            y_offset += 40
+            
+            # Show city if town is vassal to a city
+            if village.vassal_to.vassal_to and village.vassal_to.vassal_to.settlement_type == SettlementType.CITY:
+                city_label = body_font.render("Ultimate Liege:", True, (200, 200, 200))
+                surface.blit(city_label, (dialog_x + 20, y_offset))
+                y_offset += 30
+                
+                city_name = village.vassal_to.vassal_to.name if village.vassal_to.vassal_to.name else "Unnamed City"
+                city_text = small_font.render(f"• {city_name}", True, (255, 215, 0))  # Gold color for city
+                surface.blit(city_text, (dialog_x + 30, y_offset))
         
-        # Trade goods (for towns and cities)
-        if settlement.settlement_type.value in ("town", "city"):
-            trade_goods_text = body_font.render(f"Trade Goods: {settlement.trade_goods}", True, (200, 200, 200))
-            surface.blit(trade_goods_text, (status_x + 20, y_offset))
-            y_offset += 30
-        
-        # Money (placeholder)
-        money_text = small_font.render(f"Money: {settlement.money}", True, (150, 150, 150))
-        surface.blit(money_text, (status_x + 20, y_offset))
+        # Draw close instruction
+        close_text = small_font.render("Click again to close", True, (150, 150, 150))
+        surface.blit(close_text, (dialog_x + 20, dialog_y + dialog_height - 25))
 

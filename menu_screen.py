@@ -20,6 +20,10 @@ class MenuScreen:
         self.width = screen.get_width()
         self.height = screen.get_height()
         self.selected_option = 0  # 0 = Start New Game, 1 = Continue Saved Game
+        # Store rects for mouse click detection
+        self.option1_rect = None
+        self.option2_rect = None
+        self.back_button_rect = None
         
         # Load background image if it exists
         self.background_image = None
@@ -239,46 +243,58 @@ class MenuScreen:
         option1_text = "Start a New Game"
         option1_color = (255, 255, 255) if self.selected_option == 0 else (150, 150, 150)
         option1_surface = option_font.render(option1_text, True, option1_color)
-        option1_rect = option1_surface.get_rect(center=(self.width // 2, y_start))
+        self.option1_rect = option1_surface.get_rect(center=(self.width // 2, y_start))
+        # Expand rect for easier clicking
+        clickable_rect1 = pygame.Rect(
+            self.option1_rect.x - 20,
+            self.option1_rect.y - 10,
+            self.option1_rect.width + 40,
+            self.option1_rect.height + 20
+        )
         
         # Highlight selected option
         if self.selected_option == 0:
-            highlight_rect = pygame.Rect(
-                option1_rect.x - 20,
-                option1_rect.y - 10,
-                option1_rect.width + 40,
-                option1_rect.height + 20
-            )
-            pygame.draw.rect(self.screen, (50, 50, 80), highlight_rect)
-            pygame.draw.rect(self.screen, (100, 100, 150), highlight_rect, 2)
+            pygame.draw.rect(self.screen, (50, 50, 80), clickable_rect1)
+            pygame.draw.rect(self.screen, (100, 100, 150), clickable_rect1, 2)
         
-        self.screen.blit(option1_surface, option1_rect)
+        self.screen.blit(option1_surface, self.option1_rect)
         
         # Option 2: Continue Saved Game
         option2_text = "Continue a Saved Game"
         option2_color = (255, 255, 255) if self.selected_option == 1 else (150, 150, 150)
         option2_surface = option_font.render(option2_text, True, option2_color)
-        option2_rect = option2_surface.get_rect(center=(self.width // 2, y_start + 80))
+        self.option2_rect = option2_surface.get_rect(center=(self.width // 2, y_start + 80))
+        # Expand rect for easier clicking
+        clickable_rect2 = pygame.Rect(
+            self.option2_rect.x - 20,
+            self.option2_rect.y - 10,
+            self.option2_rect.width + 40,
+            self.option2_rect.height + 20
+        )
         
         # Highlight selected option
         if self.selected_option == 1:
-            highlight_rect = pygame.Rect(
-                option2_rect.x - 20,
-                option2_rect.y - 10,
-                option2_rect.width + 40,
-                option2_rect.height + 20
-            )
-            pygame.draw.rect(self.screen, (50, 50, 80), highlight_rect)
-            pygame.draw.rect(self.screen, (100, 100, 150), highlight_rect, 2)
+            pygame.draw.rect(self.screen, (50, 50, 80), clickable_rect2)
+            pygame.draw.rect(self.screen, (100, 100, 150), clickable_rect2, 2)
         
-        self.screen.blit(option2_surface, option2_rect)
+        self.screen.blit(option2_surface, self.option2_rect)
         
-        # Show message for Continue if selected
-        if self.selected_option == 1:
-            message_font = pygame.font.Font(None, 28)
-            message_text = message_font.render("(Feature coming soon)", True, (150, 150, 150))
-            message_rect = message_text.get_rect(center=(self.width // 2, y_start + 160))
-            self.screen.blit(message_text, message_rect)
+        # Draw BACK/ESC button
+        button_font = pygame.font.Font(None, 32)
+        back_text = button_font.render("BACK (ESC)", True, (200, 200, 200))
+        back_button_width = 150
+        back_button_height = 40
+        back_button_x = 20
+        back_button_y = 20
+        self.back_button_rect = pygame.Rect(back_button_x, back_button_y, back_button_width, back_button_height)
+        
+        # Draw button background
+        pygame.draw.rect(self.screen, (60, 60, 80), self.back_button_rect)
+        pygame.draw.rect(self.screen, (150, 150, 150), self.back_button_rect, 2)
+        
+        # Draw button text
+        back_text_rect = back_text.get_rect(center=self.back_button_rect.center)
+        self.screen.blit(back_text, back_text_rect)
         
         # Instructions
         instruction_font = pygame.font.Font(None, 24)
@@ -307,7 +323,7 @@ class MenuScreen:
         Returns:
             'new_game' if start new game selected,
             'continue' if continue saved game selected,
-            'quit' if ESC pressed,
+            'quit' if ESC pressed or BACK button clicked,
             None if no action taken
         """
         if event.type == pygame.KEYDOWN:
@@ -324,6 +340,35 @@ class MenuScreen:
                     return 'new_game'
                 elif self.selected_option == 1:
                     return 'continue'  # Placeholder - does nothing yet
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:  # Left mouse button
+                mouse_x, mouse_y = event.pos
+                
+                # Check BACK button
+                if self.back_button_rect and self.back_button_rect.collidepoint(mouse_x, mouse_y):
+                    return 'quit'
+                
+                # Check option 1
+                if self.option1_rect:
+                    clickable_rect1 = pygame.Rect(
+                        self.option1_rect.x - 20,
+                        self.option1_rect.y - 10,
+                        self.option1_rect.width + 40,
+                        self.option1_rect.height + 20
+                    )
+                    if clickable_rect1.collidepoint(mouse_x, mouse_y):
+                        return 'new_game'
+                
+                # Check option 2
+                if self.option2_rect:
+                    clickable_rect2 = pygame.Rect(
+                        self.option2_rect.x - 20,
+                        self.option2_rect.y - 10,
+                        self.option2_rect.width + 40,
+                        self.option2_rect.height + 20
+                    )
+                    if clickable_rect2.collidepoint(mouse_x, mouse_y):
+                        return 'continue'
         
         return None
 

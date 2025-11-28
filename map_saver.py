@@ -1,74 +1,60 @@
 """
-Map saving and loading system.
-Saves map terrain data and settlement structure (positions, names, vassal relationships).
-Economy data is saved separately in game saves.
+Map save/load functionality for persisting generated maps to disk.
 """
 import pickle
 import os
-from typing import List, Tuple, Optional
+import gzip
+from typing import List, Optional, Tuple
 from terrain import Terrain
 from settlements import Settlement, SettlementType
 
 
-def save_map(map_data: List[List[Terrain]], map_width: int, map_height: int, 
-             filepath: str, settlements: Optional[List[Settlement]] = None) -> bool:
+def save_map(map_data: List[List[Terrain]], width: int, height: int, 
+             filepath: str, map_name: str, settlements: Optional[List[Settlement]] = None,
+             seed: Optional[int] = None) -> bool:
     """
-    Save map data and settlements to a file.
+    Save a map to disk.
     
     Args:
         map_data: 2D list of Terrain objects
-        map_width: Width of the map in tiles
-        map_height: Height of the map in tiles
-        filepath: Path to save the file
+        width: Map width in tiles
+        height: Map height in tiles
+        filepath: Path to save the map file
+        map_name: Name for the map
         settlements: Optional list of settlements to save
+        seed: Optional seed used to generate the map
         
     Returns:
         True if save was successful, False otherwise
     """
     try:
-        # Convert terrain to serializable format
-        terrain_data = []
-        for row in map_data:
-            terrain_row = [tile.terrain_type.value for tile in row]
-            terrain_data.append(terrain_row)
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else '.', exist_ok=True)
         
-        # Convert settlements to serializable format
-        settlements_data = []
-        if settlements:
-            # Create a mapping of settlements to IDs for vassal relationships
-            settlement_ids = {}
-            for i, settlement in enumerate(settlements):
-                settlement_ids[id(settlement)] = i
-            
-            for settlement in settlements:
-                settlement_dict = {
-                    'settlement_type': settlement.settlement_type.value,
-                    'x': settlement.x,
-                    'y': settlement.y,
-                    'name': settlement.name,
-                    'supplies_resource': settlement.supplies_resource,
-                    'vassal_to_id': None,  # Will be set below
-                    # Note: Economy data (resources, trade_goods, money) is saved in game saves, not map saves
-                }
-                
-                # Store vassal relationships by index
-                if settlement.vassal_to:
-                    for i, s in enumerate(settlements):
-                        if s is settlement.vassal_to:
-                            settlement_dict['vassal_to_id'] = i
-                            break
-                
-                settlements_data.append(settlement_dict)
-        
+        # Prepare data for saving
         save_data = {
-            'map_width': map_width,
-            'map_height': map_height,
-            'terrain_data': terrain_data,
-            'settlements': settlements_data,
+            'width': width,
+            'height': height,
+            'map_data': map_data,
+            'map_name': map_name,
+            'settlements': settlements if settlements is not None else [],
+            'seed': seed
         }
         
-        with open(filepath, 'wb') as f:
-            pickle.dump(save_data, f)
+        # Debug: Print settlement info before saving
+        if settlements:
+            print(f"Debug save: Saving {len(settlements)} settlements")
+            town_count = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.TOWN)
+            village_count = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.VILLAGE)
+            city_count = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.CITY)
+            print(f"Debug save: {city_count} cities, {town_count} towns, {village_count} villages")
+        else:
+            print("Debug save: WARNING - settlements is None or empty!")
+        
+        # Save to file using pickle with gzip compression
+        # Use protocol 4 or higher to handle circular references better
+        with gzip.open(filepath, 'wb', compresslevel=6) as f:
+            pickle.dump(save_data, f, protocol=pickle.HIGHEST_PROTOCOL)
         
         return True
     except Exception as e:
@@ -76,94 +62,190 @@ def save_map(map_data: List[List[Terrain]], map_width: int, map_height: int,
         return False
 
 
-def load_map(filepath: str) -> Optional[Tuple[List[List[Terrain]], int, int, List[Settlement]]]:
+def load_map(filepath: str) -> Optional[Tuple[List[List[Terrain]], int, int, str, List[Settlement], Optional[int]]]:
     """
-    Load map data and settlements from a file.
+    Load a map from disk.
     
     Args:
-        filepath: Path to the file to load
+        filepath: Path to the map file
         
     Returns:
-        Tuple of (map_data, map_width, map_height, settlements) if successful, None otherwise
+        Tuple of (map_data, width, height, map_name, settlements, seed) if successful, None otherwise
     """
     try:
-        from terrain import TerrainType
+        if not os.path.exists(filepath):
+            print(f"Map file not found: {filepath}")
+            return None
         
-        with open(filepath, 'rb') as f:
-            save_data = pickle.load(f)
+        # Load from file - try gzip first (new format), fall back to uncompressed (old format)
+        try:
+            # Try compressed format first
+            with gzip.open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
+        except (gzip.BadGzipFile, OSError):
+            # Fall back to uncompressed format for backward compatibility
+            with open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
         
-        map_width = save_data['map_width']
-        map_height = save_data['map_height']
-        terrain_data = save_data['terrain_data']
-        settlements_data = save_data.get('settlements', [])
+        map_data = save_data['map_data']
+        width = save_data['width']
+        height = save_data['height']
+        # Handle old save files that don't have map_name, settlements, or seed
+        map_name = save_data.get('map_name', os.path.basename(filepath).replace('.banshee', ''))
+        settlements = save_data.get('settlements', [])
+        seed = save_data.get('seed', None)
         
-        # Reconstruct terrain
-        map_data = []
-        for row in terrain_data:
-            terrain_row = [Terrain(TerrainType(terrain_str)) for terrain_str in row]
-            map_data.append(terrain_row)
-        
-        # Reconstruct settlements
-        settlements = []
-        for settlement_dict in settlements_data:
-            settlement_type = SettlementType(settlement_dict['settlement_type'])
-            settlement = Settlement(
-                settlement_type=settlement_type,
-                x=settlement_dict['x'],
-                y=settlement_dict['y'],
-                name=settlement_dict.get('name'),
-                supplies_resource=settlement_dict.get('supplies_resource')
-            )
+        # Debug: Print settlement info after loading
+        if settlements:
+            print(f"Debug load: Loaded {len(settlements)} settlements")
+            town_count = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.TOWN)
+            village_count = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.VILLAGE)
+            city_count = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.CITY)
+            print(f"Debug load: {city_count} cities, {town_count} towns, {village_count} villages")
             
-            # Economy data is initialized to 0 by default (loaded from game saves if available)
-            # Note: Economy data is saved separately in game saves, not map saves
+            # Migrate settlements: ensure economy attributes exist (for old maps)
+            for settlement in settlements:
+                if settlement.settlement_type == SettlementType.TOWN:
+                    if not hasattr(settlement, 'resources') or settlement.resources is None:
+                        settlement.resources = {
+                            'lumber': 0,
+                            'fish and fowl': 0,
+                            'grain and livestock': 0,
+                            'ore': 0
+                        }
+                    if not hasattr(settlement, 'trade_goods') or settlement.trade_goods is None:
+                        settlement.trade_goods = 0
+                    if not hasattr(settlement, 'money') or settlement.money is None:
+                        settlement.money = 0
+                elif settlement.settlement_type == SettlementType.CITY:
+                    if not hasattr(settlement, 'trade_goods') or settlement.trade_goods is None:
+                        settlement.trade_goods = 0
+                    if not hasattr(settlement, 'money') or settlement.money is None:
+                        settlement.money = 0
             
-            settlements.append(settlement)
+            # Verify vassal relationships
+            if settlements:
+                villages_with_towns = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.VILLAGE and hasattr(s, 'vassal_to') and s.vassal_to is not None)
+                towns_with_cities = sum(1 for s in settlements if hasattr(s, 'settlement_type') and s.settlement_type == SettlementType.TOWN and hasattr(s, 'vassal_to') and s.vassal_to is not None)
+                print(f"Debug load: {villages_with_towns} villages with town links, {towns_with_cities} towns with city links")
+        else:
+            print("Debug load: WARNING - No settlements loaded from file!")
         
-        # Restore vassal relationships
-        for i, settlement_dict in enumerate(settlements_data):
-            settlement = settlements[i]
-            vassal_to_id = settlement_dict.get('vassal_to_id')
-            if vassal_to_id is not None and vassal_to_id < len(settlements):
-                settlement.vassal_to = settlements[vassal_to_id]
-                # Update vassal lists
-                if settlement.settlement_type == SettlementType.VILLAGE:
-                    if settlement.vassal_to:
-                        settlement.vassal_to.vassal_villages.append(settlement)
-                        resource = settlement.supplies_resource
-                        if resource:
-                            normalized_resource = settlement.supplies_resource
-                            from settlements import normalize_resource_name
-                            normalized_resource = normalize_resource_name(resource)
-                            if normalized_resource not in settlement.vassal_to.resource_villages:
-                                settlement.vassal_to.resource_villages[normalized_resource] = []
-                            settlement.vassal_to.resource_villages[normalized_resource].append(settlement)
-                elif settlement.settlement_type == SettlementType.TOWN:
-                    if settlement.vassal_to and settlement.vassal_to.settlement_type == SettlementType.CITY:
-                        settlement.vassal_to.vassal_towns.append(settlement)
-        
-        return (map_data, map_width, map_height, settlements)
+        return (map_data, width, height, map_name, settlements, seed)
     except Exception as e:
         print(f"Error loading map: {e}")
         return None
 
 
-def get_saved_maps(maps_dir: str = "maps") -> List[str]:
+def get_saved_maps(directory: str = "maps") -> List[Tuple[str, str, Optional[int]]]:
     """
-    Get a list of all saved map files.
+    Get list of saved map files in a directory with their names and seeds.
     
     Args:
-        maps_dir: Directory containing map files
+        directory: Directory to search for map files
+    
+    Returns:
+        List of tuples (filepath, map_name, seed) sorted by map name
+    """
+    if not os.path.exists(directory):
+        return []
+    
+    map_files = []
+    for filename in os.listdir(directory):
+        if filename.endswith('.banshee'):
+            filepath = os.path.join(directory, filename)
+            # Try to load the map name and seed, fallback to filename if it fails
+            try:
+                # Try compressed format first
+                try:
+                    with gzip.open(filepath, 'rb') as f:
+                        save_data = pickle.load(f)
+                except (gzip.BadGzipFile, OSError):
+                    # Fall back to uncompressed format
+                    with open(filepath, 'rb') as f:
+                        save_data = pickle.load(f)
+                map_name = save_data.get('map_name', os.path.basename(filepath).replace('.banshee', ''))
+                seed = save_data.get('seed', None)
+            except:
+                map_name = os.path.basename(filepath).replace('.banshee', '')
+                seed = None
+            map_files.append((filepath, map_name, seed))
+    
+    # Sort by map name
+    map_files.sort(key=lambda x: x[1].lower())
+    return map_files
+
+
+def get_map_name(filepath: str) -> Optional[str]:
+    """
+    Get the name of a saved map without loading the entire map.
+    
+    Args:
+        filepath: Path to the map file
         
     Returns:
-        List of full paths to saved map files, sorted by filename (newest first)
+        Map name if successful, None otherwise
     """
-    map_files = []
-    if os.path.exists(maps_dir):
-        for filename in os.listdir(maps_dir):
-            if filename.endswith('.banshee'):
-                full_path = os.path.join(maps_dir, filename)
-                map_files.append(full_path)
-    # Sort by filename (which includes timestamp) in reverse order (newest first)
-    map_files.sort(reverse=True)
-    return map_files
+    try:
+        if not os.path.exists(filepath):
+            return None
+        
+        # Try compressed format first, fall back to uncompressed
+        try:
+            with gzip.open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
+        except (gzip.BadGzipFile, OSError):
+            with open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
+        return save_data.get('map_name', os.path.basename(filepath).replace('.banshee', ''))
+    except:
+        return None
+
+
+def get_map_seed(filepath: str) -> Optional[int]:
+    """
+    Get the seed of a saved map without loading the entire map.
+    
+    Args:
+        filepath: Path to the map file
+        
+    Returns:
+        Map seed if successful, None otherwise
+    """
+    try:
+        if not os.path.exists(filepath):
+            return None
+        
+        # Try compressed format first, fall back to uncompressed
+        try:
+            with gzip.open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
+        except (gzip.BadGzipFile, OSError):
+            with open(filepath, 'rb') as f:
+                save_data = pickle.load(f)
+        return save_data.get('seed', None)
+    except:
+        return None
+
+
+def map_name_exists(map_name: str, directory: str = "maps") -> bool:
+    """
+    Check if a map name already exists.
+    
+    Args:
+        map_name: Name to check
+        directory: Directory to search for map files
+        
+    Returns:
+        True if name exists, False otherwise
+    """
+    saved_maps = get_saved_maps(directory)
+    for _, name in saved_maps:
+        if name.lower() == map_name.lower():
+            return True
+    return False
+
+
+
+
+

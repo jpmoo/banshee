@@ -3,7 +3,7 @@ Settlement system for the RPG map.
 Settlements are placed based on resource distribution.
 """
 from enum import Enum
-from typing import Tuple, List, Set, Optional, Dict
+from typing import Tuple, List, Set, Optional
 
 
 class SettlementType(Enum):
@@ -11,25 +11,6 @@ class SettlementType(Enum):
     TOWN = "town"
     VILLAGE = "village"
     CITY = "city"
-
-
-# Standard resource names (4 resources total)
-RESOURCES = ["lumber", "fish", "agricultural", "ore"]
-
-# Map old resource names to standard names
-RESOURCE_NAME_MAP = {
-    "fish and fowl": "fish",
-    "grain and livestock": "agricultural",
-    "lumber": "lumber",
-    "ore": "ore",
-    "fish": "fish",
-    "agricultural": "agricultural"
-}
-
-
-def normalize_resource_name(resource: str) -> str:
-    """Normalize resource names to standard format."""
-    return RESOURCE_NAME_MAP.get(resource, resource)
 
 
 class Settlement:
@@ -58,78 +39,92 @@ class Settlement:
         self.supplies_resource = supplies_resource  # For villages: resource they supply
         self.resource_villages = {}  # For towns: dict mapping resource names to villages
         
-        # Economy system
-        # Resources: only towns and cities have resources
-        self.resources: Dict[str, int] = {resource: 0 for resource in RESOURCES}
-        # Trade goods: only towns and cities have trade goods
-        self.trade_goods: int = 0
-        # Money: placeholder for all settlements
-        self.money: int = 0
+        # Economy tracking
+        # Resources (only for towns)
+        if settlement_type == SettlementType.TOWN:
+            self.resources = {
+                'lumber': 0,
+                'fish and fowl': 0,
+                'grain and livestock': 0,
+                'ore': 0
+            }
+        else:
+            self.resources = None
+        
+        # Trade goods (for towns and cities)
+        if settlement_type in [SettlementType.TOWN, SettlementType.CITY]:
+            self.trade_goods = 0
+        else:
+            self.trade_goods = None
+        
+        # Money placeholder (for towns and cities)
+        if settlement_type in [SettlementType.TOWN, SettlementType.CITY]:
+            self.money = 0  # Placeholder for future implementation
+        else:
+            self.money = None
     
     def get_position(self) -> Tuple[int, int]:
         """Get the position of the settlement."""
         return (self.x, self.y)
     
-    def add_resource_from_caravan(self, resource: str, amount: int = 10):
+    def add_resource(self, resource: str, amount: int = 10):
         """
-        Add resources from a caravan arrival.
-        Only towns can receive resources from caravans.
+        Add resources to a town.
         
         Args:
-            resource: The resource type (will be normalized)
-            amount: Amount of resource to add (default 10)
+            resource: Resource type (lumber, fish and fowl, grain and livestock, ore)
+            amount: Amount to add (default 10)
         """
         if self.settlement_type != SettlementType.TOWN:
             return
         
-        normalized_resource = normalize_resource_name(resource)
-        if normalized_resource in self.resources:
-            self.resources[normalized_resource] += amount
-            # Check if we can create trade goods
-            self._check_and_create_trade_goods()
+        if resource in self.resources:
+            self.resources[resource] += amount
     
-    def _check_and_create_trade_goods(self):
+    def produce_trade_goods(self) -> int:
         """
-        Check if town has 100 of each resource and create a trade good if so.
-        Keeps excess resources.
+        Produce trade goods from resources if town has 100 of each resource.
+        Consumes 100 of each resource per trade good produced.
+        
+        Returns:
+            Number of trade goods produced
         """
         if self.settlement_type != SettlementType.TOWN:
-            return
+            return 0
         
-        # Check if we have at least 100 of each resource
-        can_create = all(self.resources[resource] >= 100 for resource in RESOURCES)
+        trade_goods_produced = 0
         
-        if can_create:
-            # Create one trade good
-            self.trade_goods += 1
-            # Deduct 100 of each resource (keep excess)
-            for resource in RESOURCES:
+        # Check if we have enough resources to produce trade goods
+        # Need 100 of each resource per trade good
+        while all(self.resources[res] >= 100 for res in self.resources):
+            # Consume 100 of each resource
+            for resource in self.resources:
                 self.resources[resource] -= 100
-            
-            # Check if we need to transfer trade goods to city
-            self._check_and_transfer_trade_goods()
+            # Produce 1 trade good
+            self.trade_goods += 1
+            trade_goods_produced += 1
+        
+        return trade_goods_produced
     
-    def _check_and_transfer_trade_goods(self):
+    def transfer_trade_goods_to_liege(self) -> int:
         """
-        If town has 10 or more trade goods and is vassal to a city,
-        transfer 10 trade goods to the city and reset counter.
+        Transfer trade goods to liege city if town has 10 or more.
+        Resets town's trade goods to 0 after transfer.
+        
+        Returns:
+            Number of trade goods transferred
         """
         if self.settlement_type != SettlementType.TOWN:
-            return
+            return 0
         
-        if self.trade_goods >= 10 and self.vassal_to and self.vassal_to.settlement_type == SettlementType.CITY:
-            # Transfer 10 trade goods to city
-            self.vassal_to.trade_goods += 10
-            self.trade_goods -= 10
-    
-    def process_economy(self):
-        """
-        Process economy updates for this settlement.
-        Should be called periodically (e.g., each game tick).
-        """
-        if self.settlement_type == SettlementType.TOWN:
-            # Check if we can create trade goods (in case resources were added externally)
-            self._check_and_create_trade_goods()
-            # Check if we need to transfer trade goods
-            self._check_and_transfer_trade_goods()
+        if not self.vassal_to or self.vassal_to.settlement_type != SettlementType.CITY:
+            return 0
+        
+        if self.trade_goods >= 10:
+            transferred = self.trade_goods
+            self.vassal_to.trade_goods += transferred
+            self.trade_goods = 0
+            return transferred
+        
+        return 0
 

@@ -107,11 +107,13 @@ class TitleScreen:
         percent_rect = percent_text.get_rect(center=(self.width // 2, bar_y + bar_height + 30))
         self.screen.blit(percent_text, percent_rect)
         
-        # Instructions
+        # Instructions - positioned well below progress bar to avoid overlap
         instruction_font = pygame.font.Font(None, 20)
         instruction_text = instruction_font.render("Please wait while the map is being generated...", 
                                                  True, (120, 120, 120))
-        instruction_rect = instruction_text.get_rect(center=(self.width // 2, self.height - 50))
+        # Position below progress percentage with good spacing
+        instruction_y = bar_y + bar_height + 80
+        instruction_rect = instruction_text.get_rect(center=(self.width // 2, instruction_y))
         self.screen.blit(instruction_text, instruction_rect)
         
         # Update display

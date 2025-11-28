@@ -21,9 +21,10 @@ class MapMenuScreen:
         self.width = screen.get_width()
         self.height = screen.get_height()
         self.selected_option = 0  # 0 = Generate New, 1 = Load Existing
-        self.saved_maps = get_saved_maps()
-        self.selected_map_index = 0 if self.saved_maps else -1
-        self.show_map_list = False
+        # Store rects for mouse click detection
+        self.option1_rect = None
+        self.option2_rect = None
+        self.back_button_rect = None
         
         # Load title image
         self.title_image = None
@@ -73,77 +74,58 @@ class MapMenuScreen:
         option1_text = "Generate New Map"
         option1_color = (255, 255, 255) if self.selected_option == 0 else (150, 150, 150)
         option1_surface = option_font.render(option1_text, True, option1_color)
-        option1_rect = option1_surface.get_rect(center=(self.width // 2, y_start))
+        self.option1_rect = option1_surface.get_rect(center=(self.width // 2, y_start))
+        # Expand rect for easier clicking
+        clickable_rect1 = pygame.Rect(
+            self.option1_rect.x - 20,
+            self.option1_rect.y - 10,
+            self.option1_rect.width + 40,
+            self.option1_rect.height + 20
+        )
         
         # Highlight selected option
         if self.selected_option == 0:
-            highlight_rect = pygame.Rect(
-                option1_rect.x - 20,
-                option1_rect.y - 10,
-                option1_rect.width + 40,
-                option1_rect.height + 20
-            )
-            pygame.draw.rect(self.screen, (50, 50, 80), highlight_rect)
-            pygame.draw.rect(self.screen, (100, 100, 150), highlight_rect, 2)
+            pygame.draw.rect(self.screen, (50, 50, 80), clickable_rect1)
+            pygame.draw.rect(self.screen, (100, 100, 150), clickable_rect1, 2)
         
-        self.screen.blit(option1_surface, option1_rect)
+        self.screen.blit(option1_surface, self.option1_rect)
         
         # Option 2: Load Existing Map
         option2_text = "Load Existing Map"
         option2_color = (255, 255, 255) if self.selected_option == 1 else (150, 150, 150)
         option2_surface = option_font.render(option2_text, True, option2_color)
-        option2_rect = option2_surface.get_rect(center=(self.width // 2, y_start + 80))
+        self.option2_rect = option2_surface.get_rect(center=(self.width // 2, y_start + 80))
+        # Expand rect for easier clicking
+        clickable_rect2 = pygame.Rect(
+            self.option2_rect.x - 20,
+            self.option2_rect.y - 10,
+            self.option2_rect.width + 40,
+            self.option2_rect.height + 20
+        )
         
         # Highlight selected option
         if self.selected_option == 1:
-            highlight_rect = pygame.Rect(
-                option2_rect.x - 20,
-                option2_rect.y - 10,
-                option2_rect.width + 40,
-                option2_rect.height + 20
-            )
-            pygame.draw.rect(self.screen, (50, 50, 80), highlight_rect)
-            pygame.draw.rect(self.screen, (100, 100, 150), highlight_rect, 2)
+            pygame.draw.rect(self.screen, (50, 50, 80), clickable_rect2)
+            pygame.draw.rect(self.screen, (100, 100, 150), clickable_rect2, 2)
         
-        self.screen.blit(option2_surface, option2_rect)
+        self.screen.blit(option2_surface, self.option2_rect)
         
-        # Show map list if "Load Existing Map" is selected
-        if self.selected_option == 1:
-            if not self.saved_maps:
-                no_maps_text = small_font.render("No saved maps found", True, (200, 200, 200))
-                no_maps_rect = no_maps_text.get_rect(center=(self.width // 2, y_start + 160))
-                self.screen.blit(no_maps_text, no_maps_rect)
-            else:
-                # Show map list
-                list_y = y_start + 160
-                list_font = pygame.font.Font(None, 28)
-                
-                list_title = small_font.render("Saved Maps (UP/DOWN to select, ENTER to load):", 
-                                              True, (200, 200, 200))
-                self.screen.blit(list_title, (self.width // 2 - list_title.get_width() // 2, list_y))
-                list_y += 40
-                
-                # Show up to 8 maps
-                visible_maps = self.saved_maps[:8]
-                for i, map_path in enumerate(visible_maps):
-                    map_name = os.path.basename(map_path)
-                    if i == self.selected_map_index:
-                        map_color = (255, 255, 100)
-                        # Highlight selected map
-                        map_rect = pygame.Rect(
-                            self.width // 2 - 200,
-                            list_y - 5,
-                            400,
-                            30
-                        )
-                        pygame.draw.rect(self.screen, (50, 50, 80), map_rect)
-                        pygame.draw.rect(self.screen, (100, 100, 150), map_rect, 2)
-                    else:
-                        map_color = (200, 200, 200)
-                    
-                    map_text = list_font.render(f"{i + 1}. {map_name}", True, map_color)
-                    self.screen.blit(map_text, (self.width // 2 - map_text.get_width() // 2, list_y))
-                    list_y += 35
+        # Draw BACK/ESC button
+        button_font = pygame.font.Font(None, 32)
+        back_text = button_font.render("BACK (ESC)", True, (200, 200, 200))
+        back_button_width = 150
+        back_button_height = 40
+        back_button_x = 20
+        back_button_y = 20
+        self.back_button_rect = pygame.Rect(back_button_x, back_button_y, back_button_width, back_button_height)
+        
+        # Draw button background
+        pygame.draw.rect(self.screen, (60, 60, 80), self.back_button_rect)
+        pygame.draw.rect(self.screen, (150, 150, 150), self.back_button_rect, 2)
+        
+        # Draw button text
+        back_text_rect = back_text.get_rect(center=self.back_button_rect.center)
+        self.screen.blit(back_text, back_text_rect)
         
         # Instructions
         instruction_font = pygame.font.Font(None, 24)
@@ -153,6 +135,7 @@ class MapMenuScreen:
             "ESC: Back to main menu"
         ]
         y_offset = self.height - 100
+        
         for instruction in instructions:
             instruction_text = instruction_font.render(instruction, True, (120, 120, 120))
             instruction_rect = instruction_text.get_rect(center=(self.width // 2, y_offset))
@@ -171,38 +154,54 @@ class MapMenuScreen:
             
         Returns:
             'generate' if generate new map selected,
-            'load' if load map selected (with filepath),
-            'back' if ESC pressed,
+            'load_maps' if load existing map selected (to show map list screen),
+            'back' if ESC pressed or BACK button clicked,
             None if no action taken
         """
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 return 'back'
             elif event.key == pygame.K_UP:
-                if self.selected_option == 1 and self.saved_maps:
-                    # Navigate map list
-                    self.selected_map_index = max(0, self.selected_map_index - 1)
-                else:
-                    # Switch to previous option
-                    self.selected_option = (self.selected_option - 1) % 2
-                    if self.selected_option == 1 and self.saved_maps:
-                        self.selected_map_index = 0
+                # Switch to previous option
+                self.selected_option = (self.selected_option - 1) % 2
             elif event.key == pygame.K_DOWN:
-                if self.selected_option == 1 and self.saved_maps:
-                    # Navigate map list
-                    max_index = min(len(self.saved_maps) - 1, 7)  # Show up to 8 maps
-                    self.selected_map_index = min(max_index, self.selected_map_index + 1)
-                else:
-                    # Switch to next option
-                    self.selected_option = (self.selected_option + 1) % 2
-                    if self.selected_option == 1 and self.saved_maps:
-                        self.selected_map_index = 0
+                # Switch to next option
+                self.selected_option = (self.selected_option + 1) % 2
             elif event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER:
                 if self.selected_option == 0:
                     return 'generate'
-                elif self.selected_option == 1 and self.saved_maps:
-                    if 0 <= self.selected_map_index < len(self.saved_maps):
-                        return ('load', self.saved_maps[self.selected_map_index])
+                elif self.selected_option == 1:
+                    # Load existing map - go to map list screen
+                    return 'load_maps'
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:  # Left mouse button
+                mouse_x, mouse_y = event.pos
+                
+                # Check BACK button
+                if self.back_button_rect and self.back_button_rect.collidepoint(mouse_x, mouse_y):
+                    return 'back'
+                
+                # Check option 1
+                if self.option1_rect:
+                    clickable_rect1 = pygame.Rect(
+                        self.option1_rect.x - 20,
+                        self.option1_rect.y - 10,
+                        self.option1_rect.width + 40,
+                        self.option1_rect.height + 20
+                    )
+                    if clickable_rect1.collidepoint(mouse_x, mouse_y):
+                        return 'generate'
+                
+                # Check option 2
+                if self.option2_rect:
+                    clickable_rect2 = pygame.Rect(
+                        self.option2_rect.x - 20,
+                        self.option2_rect.y - 10,
+                        self.option2_rect.width + 40,
+                        self.option2_rect.height + 20
+                    )
+                    if clickable_rect2.collidepoint(mouse_x, mouse_y):
+                        return 'load_maps'
         
         return None
 
