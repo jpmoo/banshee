@@ -75,8 +75,24 @@ class MapRenderer:
                     print(f"Switched to tileset: {tileset_info.get('name', 'Unknown')}")
                 else:
                     print(f"Error: Tileset JSON file not found: {json_path}")
+                    print(f"  Attempted path: {json_path}")
+                    print(f"  Current working directory: {os.getcwd()}")
+                    # Fall back to color-based rendering
+                    self.use_tileset = False
+                    self.tileset = None
+                    self.tileset_path = None
+                    self.json_path = None
+                    self.terrain_tile_map = {}
             else:
                 print(f"Error: Tileset PNG file not found: {new_path}")
+                print(f"  Attempted path: {new_path}")
+                print(f"  Current working directory: {os.getcwd()}")
+                # Fall back to color-based rendering
+                self.use_tileset = False
+                self.tileset = None
+                self.tileset_path = None
+                self.json_path = None
+                self.terrain_tile_map = {}
     
     def _load_tileset(self):
         """Load the tileset image and detect its native tile size."""
@@ -419,25 +435,25 @@ class MapRenderer:
                     color = terrain.get_color()
                     
                     # Fog of war logic for color-based rendering:
-                # 1. Visible tiles: normal color (not darkened)
-                # 2. Unexplored tiles: completely black
-                # 3. Explored but not visible tiles: darkened
-                if is_visible:
-                    # Visible tiles: always show normal color (never darkened)
-                    pygame.draw.rect(surface, color, rect)
-                elif not is_explored:
-                    # Unexplored: completely black
-                    pygame.draw.rect(surface, (0, 0, 0), rect)
-                else:
-                    # Explored but not visible: darken the color (fog of war)
-                    # Darken by 70% (keep 30% of original brightness)
-                    fog_color = tuple(max(0, int(c * 0.3)) for c in color)
-                    pygame.draw.rect(surface, fog_color, rect)
-                
+                    # 1. Visible tiles: normal color (not darkened)
+                    # 2. Unexplored tiles: completely black
+                    # 3. Explored but not visible tiles: darkened
+                    if is_visible:
+                        # Visible tiles: always show normal color (never darkened)
+                        pygame.draw.rect(surface, color, rect)
+                    elif not is_explored:
+                        # Unexplored: completely black
+                        pygame.draw.rect(surface, (0, 0, 0), rect)
+                    else:
+                        # Explored but not visible: darken the color (fog of war)
+                        # Darken by 70% (keep 30% of original brightness)
+                        fog_color = tuple(max(0, int(c * 0.3)) for c in color)
+                        pygame.draw.rect(surface, fog_color, rect)
+                    
                     # Draw border for better visibility (only if explored and using colored rectangles)
-                if is_explored:
-                    border_color = (0, 0, 0) if is_visible else (20, 20, 20)
-                    pygame.draw.rect(surface, border_color, rect, 1)
+                    if is_explored:
+                        border_color = (0, 0, 0) if is_visible else (20, 20, 20)
+                        pygame.draw.rect(surface, border_color, rect, 1)
         
         # Draw quest marker if provided (always visible, even in unexplored areas)
         if quest_marker:

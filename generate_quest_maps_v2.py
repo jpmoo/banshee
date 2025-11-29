@@ -99,7 +99,9 @@ def detect_additional_features(description: str) -> List[Tuple[str, str]]:
         features.append(('bakery', 'rectangular'))
     if re.search(r'\bcathedral\b', description_lower):
         features.append(('cathedral', 'large_rectangular'))
-    if re.search(r'\bcave\b', description_lower) or re.search(r'\bcavern\b', description_lower) or re.search(r'\bgrotto\b', description_lower):
+    if re.search(r'\bcave\b', description_lower) or re.search(r'\bcavern\b', description_lower) or \
+       re.search(r'\bgrotto\b', description_lower) or re.search(r'\bhollowed\b', description_lower) or \
+       re.search(r'\bhollow\b', description_lower):
         features.append(('cave', 'cave_entrance'))
     if re.search(r'\bchasm\b', description_lower):
         features.append(('chasm', 'linear_gap'))
@@ -294,6 +296,48 @@ def generate_map_with_structures(description: str, location_terrain_type: str, s
     # Calculate center for feature placement
     center_x, center_y = size // 2, size // 2
     
+    # Check if description mentions boulders or rocky formations that should be rendered as hills
+    # But exclude standing stones, stone circles, and monuments (those are structures, not natural boulders)
+    description_lower = description.lower()
+    
+    # Check for monuments/structures that use stone (these should NOT trigger scattered hills)
+    # Use regex patterns to be more precise
+    import re
+    monument_patterns = [
+        r'\bstanding[\s-]?stone', r'\bstanding[\s-]?stones',
+        r'\bstone[\s-]?circle', r'\bstone[\s-]?circles',
+        r'\bring\s+of\s+stones?\b', r'\bcircle\s+of\s+stones?\b',
+        r'\bstone\s+ring', r'\bstone\s+rings',
+        r'\bmenhir', r'\bdolmen', r'\bcairn', r'\bcairns',
+        r'\bmonument', r'\bmegalith', r'\bhenge',
+        r'\bmound\b', r'\bbarrow\b', r'\btomb\b', r'\bgrave\b', r'\bcrypt\b',
+        r'\bburial\s+mound', r'\bgrassy\s+mound'
+    ]
+    has_monuments = any(re.search(pattern, description_lower) for pattern in monument_patterns)
+    
+    # Check for natural boulders/rocks (only if no monuments)
+    # These are natural features, not structures
+    has_boulders = False
+    if not has_monuments:
+        # Natural boulder/rock keywords
+        natural_boulder_keywords = [
+            'boulder', 'boulders', 'field of boulders', 'petrified',
+            'rocky', 'rock-strewn', 'stony', 'stone-strewn', 'rock field',
+            'boulder field', 'scattered boulders', 'loose rocks'
+        ]
+        has_boulders = any(keyword in description_lower for keyword in natural_boulder_keywords)
+        
+        # Also check for generic "rocks" or "stones" but only if clearly natural
+        # (not part of a structure name like "standing stones" or "stone circle")
+        if not has_boulders and ('rocks' in description_lower or 'stones' in description_lower):
+            # Only count as boulders if it's clearly natural context
+            # Check if it's NOT part of a monument phrase
+            if not re.search(r'\b(standing|circle|ring|monument|megalith|henge|mound|barrow|tomb|grave|crypt|burial|grassy)\s+(stone|stones|rock|rocks)', description_lower):
+                # Check for natural context words
+                natural_context = ['scattered', 'loose', 'field', 'strewn', 'littered', 'natural']
+                if any(context in description_lower for context in natural_context):
+                    has_boulders = True
+    
     # Create base map
     map_data = []
     for y in range(size):
@@ -304,7 +348,16 @@ def generate_map_with_structures(description: str, location_terrain_type: str, s
                 row.append(Terrain(base_terrain))
             else:
                 # Interior is grassland by default
-                row.append(Terrain(TerrainType.GRASSLAND))
+                # Only add scattered base terrain (hills) if description mentions natural boulders/rocks
+                # (not monuments/structures)
+                if base_terrain == TerrainType.HILLS and has_boulders and not has_monuments:
+                    # Add some scattered hill patches for natural boulder/rock descriptions
+                    if random.random() < 0.10:  # 10% chance for hills in interior when natural boulders mentioned
+                        row.append(Terrain(base_terrain))
+                    else:
+                        row.append(Terrain(TerrainType.GRASSLAND))
+                else:
+                    row.append(Terrain(TerrainType.GRASSLAND))
         map_data.append(row)
     
     # Detect water features
@@ -452,9 +505,8 @@ def generate_map_with_structures(description: str, location_terrain_type: str, s
     # Detect additional features
     additional_features = detect_additional_features(description)
     
-    # If no structures or features, return base map
-    if not structures and not additional_features:
-        return map_data
+    # If no structures or features, continue to edge generation
+    # (edge generation happens after structure placement)
     
     center_x, center_y = size // 2, size // 2
     
@@ -740,7 +792,7 @@ def generate_map_with_structures(description: str, location_terrain_type: str, s
                     map_data[entrance_y][entrance_x] = Terrain(TerrainType.GRASSLAND)
         
         elif structure_type == 'linear':
-            # Draw a linear structure (bridge, path, wall)
+            # Draw a linear structure (bridge, path, wall, pier, jetty)
             desc_lower = description.lower()
             # Determine orientation from description
             if 'bridge' in desc_lower or 'causeway' in desc_lower:
@@ -754,6 +806,54 @@ def generate_map_with_structures(description: str, location_terrain_type: str, s
                     # Add width for bridge
                     if y + 1 < size - 1:
                         map_data[y + 1][x] = Terrain(TerrainType.MOUNTAIN)
+            elif 'pier' in desc_lower or 'jetty' in desc_lower or 'wharf' in desc_lower or 'dock' in desc_lower:
+                # Pier/jetty extends into water - usually horizontal, extending from edge toward center
+                # Place pier extending from one edge toward center
+                orientation = random.choice(['horizontal', 'vertical'])
+                if orientation == 'horizontal':
+                    # Horizontal pier - extends from left or right edge
+                    from_left = random.random() < 0.5
+                    if from_left:
+                        # Pier extends from left edge
+                        start_x = 1
+                        end_x = min(size - 2, center_x + size // 6)
+                        y = center_y
+                    else:
+                        # Pier extends from right edge
+                        start_x = max(2, center_x - size // 6)
+                        end_x = size - 2
+                        y = center_y
+                    # Draw pier (stone structure)
+                    for x in range(start_x, end_x):
+                        if 1 <= x < size - 1 and 1 <= y < size - 1:
+                            map_data[y][x] = Terrain(TerrainType.MOUNTAIN)
+                            # Add width for pier (2-3 tiles wide)
+                            if y + 1 < size - 1:
+                                map_data[y + 1][x] = Terrain(TerrainType.MOUNTAIN)
+                            if y + 2 < size - 1 and random.random() < 0.5:
+                                map_data[y + 2][x] = Terrain(TerrainType.MOUNTAIN)
+                else:
+                    # Vertical pier - extends from top or bottom edge
+                    from_top = random.random() < 0.5
+                    if from_top:
+                        # Pier extends from top edge
+                        start_y = 1
+                        end_y = min(size - 2, center_y + size // 6)
+                        x = center_x
+                    else:
+                        # Pier extends from bottom edge
+                        start_y = max(2, center_y - size // 6)
+                        end_y = size - 2
+                        x = center_x
+                    # Draw pier (stone structure)
+                    for y in range(start_y, end_y):
+                        if 1 <= x < size - 1 and 1 <= y < size - 1:
+                            map_data[y][x] = Terrain(TerrainType.MOUNTAIN)
+                            # Add width for pier (2-3 tiles wide)
+                            if x + 1 < size - 1:
+                                map_data[y][x + 1] = Terrain(TerrainType.MOUNTAIN)
+                            if x + 2 < size - 1 and random.random() < 0.5:
+                                map_data[y][x + 2] = Terrain(TerrainType.MOUNTAIN)
             elif 'stair' in desc_lower or 'step' in desc_lower:
                 # Stairs can be diagonal or straight
                 if random.random() < 0.5:
@@ -921,11 +1021,177 @@ def generate_map_with_structures(description: str, location_terrain_type: str, s
                             if dist_from_center >= cave_radius - 1:
                                 map_data[ny][nx] = Terrain(TerrainType.GRASSLAND)
     
-    # Ensure all outer edge tiles match the base terrain type (rough edges)
-    # This must be done at the end to override any features that may have been placed on edges
+    # Ensure all outer edge tiles match the base terrain type (organic, irregular edges)
+    # Create highly organic, invasive coastline-like edges that deeply creep into the quest location
+    # This must be done at the end, but we need to preserve features that were placed
+    import math
+    
+    # Create highly irregular edge pattern using multiple overlapping sine waves for organic coastline effect
+    # Edge depth varies based on map size, but we need to preserve interior features
+    # Base depth is a percentage of map size to ensure it scales appropriately
+    # For monument maps (standing stones, stone circles, etc.), reduce edge depth to minimize hill noise
+    base_max_depth = max(4, int(size * 0.12))  # At least 4 tiles, or 12% of map size
+    # Check if this is a monument map (structures, not natural features)
+    desc_lower = description.lower()
+    import re
+    monument_patterns = [
+        r'\bstanding[\s-]?stone', r'\bstone[\s-]?circle', r'\bring\s+of\s+stones?\b',
+        r'\bmenhir', r'\bdolmen', r'\bcairn', r'\bmound\b', r'\bbarrow\b',
+        r'\btomb\b', r'\bgrave\b', r'\bcrypt\b', r'\bmonument\b'
+    ]
+    has_monuments = any(re.search(pattern, desc_lower) for pattern in monument_patterns)
+    
+    # Reduce edge depth for monument maps to minimize hill noise in interior
+    # Save current random state and restore it after edge depth calculation
+    # to ensure edge generation uses consistent random values
+    random_state = random.getstate()
+    if has_monuments and base_terrain == TerrainType.HILLS:
+        base_max_depth = max(3, int(size * 0.08))  # Reduced to 8% for monuments
+        max_edge_depth = random.randint(base_max_depth, base_max_depth + 3)  # Reduced range
+    else:
+        max_edge_depth = random.randint(base_max_depth, base_max_depth + 6)
+    # Restore random state for consistent edge generation
+    random.setstate(random_state)
+    
+    # Track which tiles have important features (structures, water, forest) that shouldn't be overwritten
+    # We'll preserve these features even in edge areas, but allow base_terrain to be placed
+    feature_tiles = set()
     for y in range(size):
         for x in range(size):
-            # Set all outer edge tiles to base terrain
+            terrain = map_data[y][x]
+            # Preserve features that are NOT base terrain and NOT grassland
+            # This means structures (mountain), water, forest, etc. should be preserved
+            # But we allow base_terrain (hills, forested_hill, etc.) to be placed in edge areas
+            # Only preserve features that are NOT on the absolute edge (edges must be base terrain)
+            if terrain.terrain_type not in (TerrainType.GRASSLAND, base_terrain):
+                # Don't preserve features on absolute edges - those must be base terrain
+                if not (x == 0 or x == size - 1 or y == 0 or y == size - 1):
+                    feature_tiles.add((x, y))
+    
+    # Generate edge depth map using multiple sine waves for highly organic variation
+    # Calculate minimum guaranteed depth to ensure edges always extend
+    min_guaranteed_depth = max(3, int(max_edge_depth * 0.3))  # At least 30% of max depth
+    
+    # First pass: Apply guaranteed minimum extension for all edges
+    for x in range(size):
+        for y in range(size):
+            # Skip if this tile has an important feature that should be preserved (unless it's on the absolute edge)
+            if (x, y) in feature_tiles and not (x == 0 or x == size - 1 or y == 0 or y == size - 1):
+                continue
+            
+            # Calculate distance from each edge
+            dist_top = y
+            dist_bottom = size - 1 - y
+            dist_left = x
+            dist_right = size - 1 - x
+            
+            # Find minimum distance to any edge
+            min_dist = min(dist_top, dist_bottom, dist_left, dist_right)
+            
+            # Guarantee minimum extension for all edges
+            if min_dist < min_guaranteed_depth:
+                map_data[y][x] = Terrain(base_terrain)
+    
+    # Second pass: Apply organic wave-based variation for deeper extension
+    for x in range(size):
+        for y in range(size):
+            # Skip if this tile has an important feature that should be preserved (unless it's on the absolute edge)
+            if (x, y) in feature_tiles and not (x == 0 or x == size - 1 or y == 0 or y == size - 1):
+                continue
+            
+            # Calculate distance from each edge
+            dist_top = y
+            dist_bottom = size - 1 - y
+            dist_left = x
+            dist_right = size - 1 - x
+            
+            # Find minimum distance to any edge
+            min_dist = min(dist_top, dist_bottom, dist_left, dist_right)
+            
+            # Process tiles near edges (extend check to max_edge_depth + buffer) for organic variation
+            if min_guaranteed_depth <= min_dist <= max_edge_depth + 2:
+                # Use multiple sine waves with different frequencies and phases for highly organic coastline effect
+                # Use deterministic phases based on position and description hash for consistency
+                desc_hash = hash(description) % 10000
+                phase1 = ((x * 0.1 + y * 0.15 + desc_hash * 0.01) % (2 * math.pi))
+                phase2 = ((x * 0.2 - y * 0.18 + desc_hash * 0.015) % (2 * math.pi))
+                phase3 = ((x * 0.3 + y * 0.25 + desc_hash * 0.02) % (2 * math.pi))
+                phase4 = ((x * 0.5 - y * 0.4 + desc_hash * 0.025) % (2 * math.pi))
+                
+                # Multiple overlapping waves with different frequencies create organic patterns
+                # Use higher frequency waves for more ragged edges
+                wave1 = math.sin(x * 0.4 + y * 0.3 + phase1) * 0.4
+                wave2 = math.sin(x * 0.7 - y * 0.5 + phase2) * 0.3
+                wave3 = math.sin(x * 1.2 + y * 0.9 + phase3) * 0.2
+                wave4 = math.sin(x * 2.0 - y * 1.5 + phase4) * 0.1
+                
+                # Add deterministic noise for extra ragged variation (based on position hash)
+                noise_seed = hash(f"{desc_hash}_{x}_{y}") % 10000
+                noise = ((noise_seed / 10000.0) - 0.5) * 0.35  # Deterministic noise
+                
+                # Add perlin-like noise using multiple octaves for more natural variation
+                noise2 = math.sin(x * 0.15 + y * 0.12 + phase1) * 0.15
+                noise3 = math.sin(x * 0.3 - y * 0.25 + phase2) * 0.1
+                
+                combined_wave = (wave1 + wave2 + wave3 + wave4) / 4.0 + noise + noise2 + noise3
+                
+                # Calculate edge depth based on position and wave pattern
+                # Use wider range (0.4 to 1.0) to ensure good penetration
+                depth_multiplier = 0.4 + 0.6 * (0.5 + 0.5 * combined_wave)
+                
+                # Enhance corners - make them thicker/deeper to avoid square appearance
+                # Calculate distance to nearest corner
+                corner_distances = [
+                    ((x - 0) ** 2 + (y - 0) ** 2) ** 0.5,  # Top-left
+                    ((x - (size - 1)) ** 2 + (y - 0) ** 2) ** 0.5,  # Top-right
+                    ((x - 0) ** 2 + (y - (size - 1)) ** 2) ** 0.5,  # Bottom-left
+                    ((x - (size - 1)) ** 2 + (y - (size - 1)) ** 2) ** 0.5  # Bottom-right
+                ]
+                min_corner_dist = min(corner_distances)
+                
+                # If close to a corner, increase depth to make corners thicker
+                corner_boost = 0
+                if min_corner_dist < max_edge_depth * 1.5:
+                    # Boost depth near corners (closer = more boost)
+                    corner_factor = 1.0 - (min_corner_dist / (max_edge_depth * 1.5))
+                    corner_boost = corner_factor * 0.4  # Up to 40% additional depth
+                
+                depth_multiplier = min(1.0, depth_multiplier + corner_boost)
+                # Calculate depth for this specific position based on wave pattern
+                # This creates organic, wavy edges
+                # Ensure minimum depth is at least 30% of max_edge_depth to guarantee extension
+                min_depth = max(3, int(max_edge_depth * 0.3))
+                depth = max(min_depth, int(max_edge_depth * depth_multiplier))
+                
+                # Apply edge terrain based on which edge is closest
+                # Use the calculated depth to determine if this tile should be edge terrain
+                if min_dist == dist_top:
+                    # Top edge - wave extends downward
+                    # Tile should be hills if it's within 'depth' tiles of the top edge
+                    if y < depth:
+                        map_data[y][x] = Terrain(base_terrain)
+                elif min_dist == dist_bottom:
+                    # Bottom edge - wave extends upward
+                    # Tile should be hills if it's within 'depth' tiles of the bottom edge
+                    if y >= size - depth:
+                        map_data[y][x] = Terrain(base_terrain)
+                elif min_dist == dist_left:
+                    # Left edge - wave extends rightward
+                    # Tile should be hills if it's within 'depth' tiles of the left edge
+                    if x < depth:
+                        map_data[y][x] = Terrain(base_terrain)
+                elif min_dist == dist_right:
+                    # Right edge - wave extends leftward
+                    # Tile should be hills if it's within 'depth' tiles of the right edge
+                    if x >= size - depth:
+                        map_data[y][x] = Terrain(base_terrain)
+                
+                # Corner handling is now integrated into the main depth calculation above
+                # This ensures corners are naturally thicker without separate logic
+    
+    # Ensure the absolute outermost edge is always base terrain (for clean boundaries)
+    for y in range(size):
+        for x in range(size):
             if x == 0 or x == size - 1 or y == 0 or y == size - 1:
                 map_data[y][x] = Terrain(base_terrain)
     

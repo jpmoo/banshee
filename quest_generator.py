@@ -39,25 +39,30 @@ def generate_quest(settlement: Settlement, map_data: List[List[Terrain]],
         max_days = None  # No maximum
         require_path = False
     
-    # Try each location terrain type in random order until we find a valid location
+    # Try each location terrain type and collect all valid candidates
+    # Then randomly select from all candidates to give equal chances to each terrain type
     location_types = ["hill", "forested_hill", "grassland", "forest", "waterside"]
-    random.shuffle(location_types)  # Randomize order
+    random.shuffle(location_types)  # Randomize order for efficiency (doesn't affect final selection)
     
     quest_x, quest_y = None, None
     location_terrain_type = None
     
-    # First pass: try with original constraints
+    # First pass: try with original constraints, collecting all valid candidates
+    all_candidates = []
     for terrain_type in location_types:
         # Try to find valid location for this terrain type
-        quest_x, quest_y = find_quest_location(
+        candidate_x, candidate_y = find_quest_location(
             settlement, map_data, map_width, map_height,
             terrain_type, min_days, max_days, require_path, pathfinder
         )
         
-        if quest_x is not None and quest_y is not None:
-            # Found a valid location!
-            location_terrain_type = terrain_type
-            break
+        if candidate_x is not None and candidate_y is not None:
+            # Found a valid location! Store it
+            all_candidates.append((candidate_x, candidate_y, terrain_type))
+    
+    # Randomly select from all valid candidates (equal chance for each terrain type)
+    if all_candidates:
+        quest_x, quest_y, location_terrain_type = random.choice(all_candidates)
     
     # Second pass: find ANY passable terrain within reasonable distance
     if quest_x is None or quest_y is None:
@@ -105,7 +110,7 @@ def generate_quest(settlement: Settlement, map_data: List[List[Terrain]],
             
             # Found a valid location!
             quest_x, quest_y = x, y
-            # Determine terrain type
+            # Determine terrain type - be more precise
             terrain = map_data[y][x]
             if terrain.terrain_type == TerrainType.HILLS:
                 location_terrain_type = "hill"
@@ -113,6 +118,22 @@ def generate_quest(settlement: Settlement, map_data: List[List[Terrain]],
                 location_terrain_type = "forested_hill"
             elif terrain.terrain_type == TerrainType.FOREST:
                 location_terrain_type = "forest"
+            elif terrain.terrain_type == TerrainType.GRASSLAND:
+                # Check if it's actually waterside
+                is_waterside = False
+                for dy in [-1, 0, 1]:
+                    for dx in [-1, 0, 1]:
+                        if dx == 0 and dy == 0:
+                            continue
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < map_width and 0 <= ny < map_height:
+                            adj_terrain = map_data[ny][nx]
+                            if adj_terrain.terrain_type in [TerrainType.SHALLOW_WATER, TerrainType.DEEP_WATER, TerrainType.RIVER]:
+                                is_waterside = True
+                                break
+                    if is_waterside:
+                        break
+                location_terrain_type = "waterside" if is_waterside else "grassland"
             else:
                 location_terrain_type = "grassland"
             break
