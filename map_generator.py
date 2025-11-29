@@ -1951,51 +1951,7 @@ class MapGenerator:
         # Shuffle the names for random assignment, then use as a queue (pop from front)
         random.shuffle(town_names)
         
-        # List of village names to randomly assign
-        village_names = [
-            "Aelrin", "Aghra", "Ailloch", "Airdlen", "Aisca", "Aislin", "Albrin", "Alrae", "Ambragh", "Anwen",
-            "Ardra", "Arlen", "Arnagh", "Asca", "Athrae", "Baelach", "Baerin", "Bailloch", "Ballen", "Balrae",
-            "Banrin", "Barraig", "Beatha", "Beithin", "Belmor", "Benach", "Benrae", "Bethra", "Bhaen", "Blaenoch",
-            "Blethra", "Boirlen", "Braen", "Branlin", "Brenach", "Brinloch", "Brochan", "Bronnach", "Brunna", "Brynlin",
-            "Caelach", "Caerlin", "Cairin", "Calrae", "Cambrin", "Canaigh", "Carlen", "Casra", "Cathra", "Ceannach",
-            "Cearnin", "Ceolra", "Cerin", "Cethra", "Charnin", "Chloen", "Cianach", "Clachra", "Clanna", "Clarn",
-            "Clenach", "Clonnin", "Clutha", "Coenlin", "Colbrae", "Collin", "Comrach", "Conlin", "Corran", "Cothra",
-            "Craelin", "Crannach", "Crethra", "Croen", "Cuilen", "Curragh", "Daelach", "Daenin", "Dairach", "Dalin",
-            "Damra", "Darnach", "Deirlin", "Delrae", "Denach", "Derlen", "Dethra", "Doinn", "Domach", "Donlen",
-            "Dorrin", "Dranagh", "Drethra", "Drinn", "Drunlen", "Dualla", "Dulen", "Dûninn", "Duthra", "Ealra",
-            "Eanach", "Eirlen", "Eithra", "Elach", "Elin", "Embrin", "Enloch", "Enna", "Enrach", "Enwen",
-            "Eorlen", "Eothra", "Errin", "Eslen", "Ethlin", "Faelach", "Faenna", "Failinn", "Fainach", "Falin",
-            "Falra", "Farrach", "Fathra", "Fearnin", "Feirlen", "Felin", "Fenach", "Ferin", "Fianna", "Fildra",
-            "Finach", "Finlen", "Finnra", "Fionach", "Firlen", "Flanra", "Flinn", "Fluthra", "Foen", "Forrach",
-            "Fraen", "Frinach", "Fuinna", "Gaenach", "Gailin", "Galach", "Gallen", "Garnin", "Gathra", "Geanlin",
-            "Geirlen", "Gellan", "Gerach", "Gethra", "Ghaen", "Glaenach", "Glann", "Glethra", "Gluin", "Goirlen",
-            "Golach", "Gollin", "Gorlen", "Granna", "Grethra", "Grinach", "Gruin", "Guenna", "Gulach", "Gullen",
-            "Gwyrin", "Haenach", "Halra", "Hanlin", "Harrach", "Heirlen", "Helin", "Henach", "Herlin", "Hethra",
-            "Hianna", "Hirin", "Holach", "Hollen", "Horin", "Hraith", "Huinn", "Ianach", "Iarla", "Ienlin",
-            "Ilenach", "Ilthra", "Inach", "Inlen", "Innisra", "Iorach", "Iorlen", "Islen", "Ithra", "Kaelra",
-            "Kaen", "Kairlen", "Kalach", "Kanlin", "Karrach", "Kearin", "Keirlen", "Kellach", "Kelnin", "Kernach",
-            "Kethra", "Kiann", "Kilrach", "Kinnin", "Kirlen", "Klann", "Klythra", "Koen", "Korlen", "Kraen",
-            "Laenna", "Lairlen", "Lallan", "Larnach", "Leirach", "Lellan", "Lenra", "Lethra", "Lianach", "Lielin",
-            "Linach", "Lirinn", "Lirlen", "Lithra", "Loen", "Loinn", "Lornach", "Lothra", "Luinn", "Maelach",
-            "Maenna", "Mailin", "Mainach", "Malra", "Marnin", "Mathra", "Mearlen", "Meirach", "Mellach", "Menlin",
-            "Merach", "Methra", "Mhaen", "Mianna", "Minach", "Mirlen", "Moinn", "Mornach", "Muirlen", "Muinn",
-            "Nairach", "Nallen", "Narnin", "Neirlen", "Nellach", "Nenra", "Nethra", "Niann", "Ninach", "Noinn",
-            "Norlen", "Nuinn", "Oenlin", "Oirach", "Oirlen", "Olach", "Ollin", "Ornach", "Orra", "Othra",
-            "Paenna", "Pailin", "Panach", "Parlen", "Peirach", "Pellin", "Penach", "Perrin", "Pethra", "Phairin",
-            "Phinlen", "Phorlen", "Porthra", "Quaen", "Quallin", "Quenach", "Quillin", "Quinra", "Raenna", "Rairlen",
-            "Rallan", "Ranach", "Rarnin", "Reirlen", "Relach", "Renlin", "Rethra", "Rhaen", "Rhialin", "Rhonach",
-            "Rhuinn", "Rianach", "Riann", "Rinlen", "Rionach", "Rithra", "Roen", "Rolach", "Rolin", "Rornach",
-            "Ruirlen", "Ruinn", "Saelach", "Saenna", "Sainach", "Salra", "Sarnin", "Seirlen", "Selach", "Senlin",
-            "Sethra", "Sgairin", "Shainach", "Sheirlen", "Shellin", "Shorlen", "Siann", "Sillach", "Simlen", "Sinnach",
-            "Soinn", "Sorlen", "Sothra", "Suinn", "Taenach", "Tairlen", "Tallen", "Tarnach", "Teirach", "Tellin",
-            "Tenra", "Tethra", "Thaen", "Thalin", "Thirlen", "Thonnach", "Thuin", "Tiann", "Tinach", "Toinn",
-            "Tornin", "Tuirlen", "Tuinn", "Uaen", "Uallin", "Uenach", "Ullin", "Ulthra", "Unach", "Unlen",
-            "Urrin", "Uthra", "Vaenach", "Vallin", "Varnin", "Veirlen", "Velach", "Vernin", "Vethra", "Viann",
-            "Vinlen", "Voen", "Volach", "Vornach", "Wairlin", "Wathra", "Wenlin", "Wethra", "Wiann", "Winach",
-            "Woinn", "Wornin", "Wuinn", "Yaenna", "Yairlen", "Yallan", "Yenach", "Yornach", "Yuinn", "Yuthra"
-        ]
-        # Shuffle the village names for random assignment, then use as a queue (pop from front)
-        random.shuffle(village_names)
+        # Village names are now assigned from worldbuilding data
         
         towns = []
         
@@ -2276,26 +2232,7 @@ class MapGenerator:
         # Also add lake tiles (they're shallow water)
         shallow_water_tiles.update(lake_tiles)
         
-        # List of city names to randomly assign
-        city_names = [
-            "Ailthirion", "Albaroch", "Ardmaen", "Bael Tir", "Belenmor", "Brannath",
-            "Caer Aedon", "Caer Dovra", "Caerlinne", "Cairbrigh", "Caltraen", "Cathair Muir",
-            "Ceorlach", "Coedwyn", "Corravon", "Craegwyn", "Crennagh", "Culdaran", "Cynnaroch",
-            "Dalbrad", "Danvraen", "Deorwyn", "Dinas Mael", "Dûn Caelen", "Dûn Gwair", "Dûn Moira",
-            "Eilthros", "Elarach", "Eredwyn", "Eryndor", "Faelgor", "Fionncaer", "Galtraen",
-            "Garvach", "Glaemor", "Glanraith", "Gwairmor", "Gwennar", "Hael Tir", "Hallavor",
-            "Illtraen", "Innis Muir", "Kaer Dûn", "Kaerthir", "Kelravon", "Kilmorven", "Korrwyn",
-            "Lannvrech", "Lir Dûn", "Lochraen", "Lorcairn", "Lughvenn", "Maen Tir", "Maerwyn",
-            "Mairach", "Malthros", "Marvran", "Menhirra", "Mornath", "Nairvenn", "Naivros",
-            "Nevanor", "Oirthmar", "Orra Dûn", "Ossvenn", "Pendraith", "Penwynn", "Rathmorra",
-            "Rhydwen", "Rionnath", "Sarn Tir", "Scaevra", "Sennach", "Sevanach", "Sionmor",
-            "Solmara", "Stronach", "Taelvenn", "Talmorra", "Tanraith", "Taranwen", "Tethmor",
-            "Thalrach", "Thirnaen", "Tir Alwen", "Tir Caelen", "Tulanach", "Tynmuir", "Uaine Dûn",
-            "Urvalen", "Valtraen", "Varwynn", "Veilmar", "Velthir", "Vennach", "Veyl Tir",
-            "Vornachair", "Wynmorra", "Ythrenn", "Zairloch"
-        ]
-        random.shuffle(city_names)
-        name_index = 0
+        # City names are now assigned from worldbuilding data
         
         # Track occupied tiles (cities can't overlap with existing settlements)
         occupied_tiles = set()
@@ -2577,24 +2514,17 @@ class MapGenerator:
         towns = [s for s in settlements if s.settlement_type == SettlementType.TOWN]
         villages = [s for s in settlements if s.settlement_type == SettlementType.VILLAGE]
         
-        # Assign city names
+        # Assign city names from worldbuilding data
         city_index = 1
         for city in cities:
             city_key = f"City {city_index}"
             if city_key in self.worldbuilding_data:
                 city_data = self.worldbuilding_data[city_key]
-                if "leader" in city_data and "name" in city_data["leader"]:
-                    leader_name = city_data["leader"]["name"]
-                    # Extract name part (everything after the last space, which is the title)
-                    # Format: "Title Name" -> "Name"
-                    name_parts = leader_name.split()
-                    if len(name_parts) > 1:
-                        city.name = " ".join(name_parts[1:])  # Everything after the title
-                    else:
-                        city.name = leader_name
+                if "name" in city_data:
+                    city.name = city_data["name"]
             city_index += 1
         
-        # Assign town names (under cities)
+        # Assign town names (under cities) from worldbuilding data
         city_index = 1
         for city in cities:
             city_key = f"City {city_index}"
@@ -2606,17 +2536,12 @@ class MapGenerator:
                     town_key = f"Vassal Town {town_index}"
                     if town_key in city_data:
                         town_data = city_data[town_key]
-                        if "leader" in town_data and "name" in town_data["leader"]:
-                            leader_name = town_data["leader"]["name"]
-                            name_parts = leader_name.split()
-                            if len(name_parts) > 1:
-                                town.name = " ".join(name_parts[1:])
-                            else:
-                                town.name = leader_name
+                        if "name" in town_data:
+                            town.name = town_data["name"]
                     town_index += 1
             city_index += 1
         
-        # Assign free town names
+        # Assign free town names from worldbuilding data
         free_town_key = "City NONE FOR FREE TOWN"
         if free_town_key in self.worldbuilding_data:
             free_town_data = self.worldbuilding_data[free_town_key]
@@ -2626,13 +2551,8 @@ class MapGenerator:
                 town_key = f"Vassal Town {town_index}"
                 if town_key in free_town_data:
                     town_data = free_town_data[town_key]
-                    if "leader" in town_data and "name" in town_data["leader"]:
-                        leader_name = town_data["leader"]["name"]
-                        name_parts = leader_name.split()
-                        if len(name_parts) > 1:
-                            town.name = " ".join(name_parts[1:])
-                        else:
-                            town.name = leader_name
+                    if "name" in town_data:
+                        town.name = town_data["name"]
                 town_index += 1
         
         # Assign village names

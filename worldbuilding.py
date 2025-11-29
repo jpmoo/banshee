@@ -10,14 +10,14 @@ from terrain import TerrainType
 
 # Import data from separate files
 from data_cities import (
-    city_tones, city_flavors, city_titles, city_names, city_bios
+    city_tones, city_flavors, city_titles, city_names, city_bios, city_leader_names
 )
 from data_towns import (
-    town_tones, town_flavors, town_titles, town_bios
+    town_tones, town_flavors, town_titles, town_bios, town_leader_names, town_names
 )
 from data_villages import (
     village_terrains, village_templates, village_flavor,
-    village_titles, village_names, village_bios
+    village_titles, village_names, village_bios, village_leader_names
 )
 
 
@@ -37,24 +37,30 @@ def unique_choice(pool: list, label: str):
 # ============================================================
 
 def make_city(tones_pool: list, flavors_pool: list, titles_pool: list,
-              names_pool: list, bios_pool: list) -> Dict:
+              leader_names_pool: list, bios_pool: list, city_names_pool: list) -> Dict:
     """Generate city data using unique choices from pools."""
     return {
+        "name": unique_choice(city_names_pool, 'city_names'),
         "description": f"A great city {unique_choice(tones_pool, 'city_tones')}. {unique_choice(flavors_pool, 'city_flavors')}",
         "leader": {
-            "name": f"{random.choice(titles_pool)} {unique_choice(names_pool, 'city_names')}",
+            "name": f"{random.choice(titles_pool)} {unique_choice(leader_names_pool, 'city_leader_names')}",
             "biography": unique_choice(bios_pool, 'city_bios')
         }
     }
 
 
 def make_town(tones_pool: list, flavors_pool: list, titles_pool: list,
-              names_pool: list, bios_pool: list) -> Dict:
+              leader_names_pool: list, bios_pool: list, town_names_pool: list) -> Dict:
     """Generate town data using unique choices from pools."""
+    tone = unique_choice(tones_pool, 'town_tones')
+    # Capitalize first letter if it starts with lowercase
+    if tone and tone[0].islower():
+        tone = tone[0].upper() + tone[1:]
     return {
-        "description": f"A town {unique_choice(tones_pool, 'town_tones')}. {unique_choice(flavors_pool, 'town_flavors')}",
+        "name": unique_choice(town_names_pool, 'town_names'),
+        "description": f"{tone}. {unique_choice(flavors_pool, 'town_flavors')}",
         "leader": {
-            "name": f"{random.choice(titles_pool)} {unique_choice(names_pool, 'leader_name')}",
+            "name": f"{random.choice(titles_pool)} {unique_choice(leader_names_pool, 'town_leader_names')}",
             "biography": unique_choice(bios_pool, 'town_bios')
         }
     }
@@ -116,20 +122,21 @@ def generate_worldbuilding_data(settlements: List[Settlement], seed: int = None,
     city_tones_pool = copy_pool(city_tones)
     city_flavors_pool = copy_pool(city_flavors)
     city_titles_pool = copy_pool(city_titles)
-    city_names_pool = copy_pool(city_names)
+    city_leader_names_pool = copy_pool(city_leader_names)
     city_bios_pool = copy_pool(city_bios)
+    city_names_pool = copy_pool(city_names)
     
     town_tones_pool = copy_pool(town_tones)
     town_flavors_pool = copy_pool(town_flavors)
     town_titles_pool = copy_pool(town_titles)
     town_bios_pool = copy_pool(town_bios)
-    # Towns share city_names for leader names
-    town_names_pool = copy_pool(city_names)
+    town_leader_names_pool = copy_pool(town_leader_names)
+    town_names_pool = copy_pool(town_names)
     
     village_titles_pool = copy_pool(village_titles)
     village_bios_pool = copy_pool(village_bios)
-    # Villages use city_names for leader names, but have their own village_names for settlement names
-    village_leader_names_pool = copy_pool(city_names)
+    # Villages have their own leader names and settlement names
+    village_leader_names_pool = copy_pool(village_leader_names)
     village_names_pool = copy_pool(village_names)
     
     # Village terrain-specific pools
@@ -154,7 +161,7 @@ def generate_worldbuilding_data(settlements: List[Settlement], seed: int = None,
     for city in cities:
         city_key = f"City {city_index}"
         city_data = make_city(city_tones_pool, city_flavors_pool, city_titles_pool,
-                              city_names_pool, city_bios_pool)
+                              city_leader_names_pool, city_bios_pool, city_names_pool)
         
         # Find towns that are vassals to this city
         vassal_towns = [t for t in towns if t.vassal_to == city]
@@ -162,7 +169,7 @@ def generate_worldbuilding_data(settlements: List[Settlement], seed: int = None,
         for town in vassal_towns:
             town_key = f"Vassal Town {town_index}"
             town_data = make_town(town_tones_pool, town_flavors_pool, town_titles_pool,
-                                 town_names_pool, town_bios_pool)
+                                 town_leader_names_pool, town_bios_pool, town_names_pool)
             
             # Find villages that are vassals to this town
             vassal_villages = [v for v in villages if v.vassal_to == town]
@@ -207,7 +214,7 @@ def generate_worldbuilding_data(settlements: List[Settlement], seed: int = None,
         free_town_data = {
             "description": "A free city owing allegiance to none, ruled by charisma, coin, and stubborn will.",
             "leader": {
-                "name": f"{random.choice(city_titles_pool)} {unique_choice(city_names_pool, 'city_names')}",
+                "name": f"{random.choice(city_titles_pool)} {unique_choice(city_leader_names_pool, 'city_leader_names')}",
                 "biography": unique_choice(city_bios_pool, 'city_bios')
             }
         }
@@ -216,7 +223,7 @@ def generate_worldbuilding_data(settlements: List[Settlement], seed: int = None,
         for town in free_towns:
             town_key = f"Vassal Town {town_index}"
             town_data = make_town(town_tones_pool, town_flavors_pool, town_titles_pool,
-                                 town_names_pool, town_bios_pool)
+                                 town_leader_names_pool, town_bios_pool, town_names_pool)
             
             # Find villages that are vassals to this town
             vassal_villages = [v for v in villages if v.vassal_to == town]

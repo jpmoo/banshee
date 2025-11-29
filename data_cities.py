@@ -308,6 +308,45 @@ city_titles = [
     "Lord of Ashes", "High Vicar", "Speaker of Stones"
 ]
 
+city_leader_names = [
+    "Aedon", "Aerfael", "Aeronwyn", "Ailric", "Aisled", "Alaric",
+    "Alwenna", "Ambren", "Anarion", "Ansel", "Ardric", "Argen",
+    "Aricel", "Arion", "Arthgal", "Arwynne", "Baelorin", "Balinor",
+    "Baraithen", "Belenos", "Brenic", "Brendan", "Brennor", "Briannon",
+    "Brigwen", "Brynach", "Cadarn", "Cadeyr", "Cadfaeron", "Cadric",
+    "Caelanor", "Caeric", "Caerwynne", "Callenor", "Calwen", "Caradryn",
+    "Carwenna", "Cathalor", "Cavanen", "Cearwyn", "Cedren", "Cerwyn",
+    "Ciarwen", "Cillan", "Clarenor", "Colfael", "Conaric", "Conchobar",
+    "Corfaen", "Corren", "Creon", "Culric", "Cynfaeron", "Cynricen",
+    "Darion", "Darran", "Declaen", "Deiric", "Delanor", "Denfael",
+    "Derian", "Derwyn", "Diarwyn", "Donnor", "Doranic", "Dragan",
+    "Drystanor", "Dwynen", "Eadric", "Eirfael", "Eiraen", "Eithron",
+    "Elanor", "Eledric", "Elenwyn", "Elgar", "Elricen", "Eochaen",
+    "Eoghen", "Eonanor", "Erfaen", "Eryl", "Eryndor", "Esylltan",
+    "Evric", "Faenric", "Faerwyn", "Faranor", "Fergusen", "Fiachren",
+    "Finlaen", "Fintanor", "Flannon", "Foran", "Gairic", "Garethor",
+    "Garion", "Garric", "Gawyn", "Gildric", "Gilfaen", "Glenric",
+    "Glyndor", "Goran", "Gormach", "Gwydric", "Gwynfael", "Gwyric",
+    "Haelenor", "Halric", "Harkinor", "Heledric", "Hollan", "Hywelric",
+    "Idron", "Illior", "Ilyraen", "Iorfael", "Iricen", "Ithric",
+    "Kaelric", "Kaeron", "Kavanor", "Kellanor", "Kerfael", "Kianor",
+    "Kieranor", "Kynric", "Lachanor", "Lairenor", "Lannor", "Leirion",
+    "Llewric", "Lochanor", "Lorcanen", "Lugric", "Lynfael", "Maelor",
+    "Maeronor", "Malricen", "Marfael", "Marenic", "Medric", "Meirionen",
+    "Meradoc", "Merinor", "Merric", "Morran", "Moyric", "Myrfaen",
+    "Nairen", "Neiran", "Nemainor", "Nevricen", "Nialen", "Noranic",
+    "Odranor", "Oengric", "Oisinor", "Ordan", "Orlaen", "Orrenfael",
+    "Owainor", "Padric", "Paranor", "Peadric", "Phelanor", "Piranen",
+    "Pryderion", "Raelan", "Rathric", "Rhiannonor", "Rhysfaen", "Riagorn",
+    "Rionen", "Ronanor", "Rowanor", "Ruairen", "Sarenor", "Selric",
+    "Seranor", "Shenfael", "Siaron", "Sionen", "Sorric", "Sulricen",
+    "Talfaen", "Talfenor", "Taranic", "Tarranor", "Tarynfael", "Teiric",
+    "Thalion", "Thaneir", "Tiernanor", "Tigernor", "Toranic", "Torfaen",
+    "Torinor", "Torric", "Tristanor", "Turlanor", "Uillanor", "Urienfael",
+    "Valenric", "Vaughanor", "Vennor", "Verric", "Vornic", "Wenricen",
+    "Wynricen", "Ysfaen", "Ysricen", "Yvaen", "Ywenfael"
+]
+
 city_names = [
     "Caerwyn", "Eira", "Talrec", "Nolla", "Alwen", "Merric", "Caldon", "Branoc",
     "Siorra", "Relan", "Isla", "Mael", "Tane", "Darrin", "Kaen", "Orlan", "Fiora",

@@ -352,7 +352,10 @@ def main():
                 # Get settlements from generator
                 if generator and hasattr(generator, 'settlements'):
                     settlements = generator.settlements
-                    worldbuilding_data = None  # No worldbuilding data generation
+                    # Get worldbuilding data from generator if available
+                    worldbuilding_data = None
+                    if hasattr(generator, 'worldbuilding_data'):
+                        worldbuilding_data = generator.worldbuilding_data
                     town_count = sum(1 for s in settlements if s.settlement_type == SettlementType.TOWN)
                     village_count = sum(1 for s in settlements if s.settlement_type == SettlementType.VILLAGE)
                     city_count = sum(1 for s in settlements if s.settlement_type == SettlementType.CITY)
@@ -485,10 +488,14 @@ def main():
                                             selected_village = None
                                             selected_town = None
                                         
-                                        # Show settlement dialog with worldbuilding data (if available from saved map)
+                                        # Show settlement dialog with worldbuilding data (if available from saved map or generator)
                                         from settlement_dialog import show_settlement_dialog
+                                        # Get worldbuilding_data from generator if not already set
+                                        dialog_worldbuilding_data = worldbuilding_data
+                                        if dialog_worldbuilding_data is None and 'generator' in locals() and hasattr(generator, 'worldbuilding_data'):
+                                            dialog_worldbuilding_data = generator.worldbuilding_data
                                         show_settlement_dialog(screen, clock, clicked_settlement, 
-                                                              settlements, worldbuilding_data)
+                                                              settlements, dialog_worldbuilding_data)
 
                                     else:
                                         # Clicked on empty space - deselect everything
