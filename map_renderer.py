@@ -6,7 +6,7 @@ import pygame
 import math
 import os
 import json
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 from terrain import Terrain, TerrainType
 from settlements import Settlement, SettlementType
 
@@ -342,6 +342,7 @@ class MapRenderer:
         return tile_surface
     
     def render_map(self, map_data: List[List[Terrain]], surface: pygame.Surface, 
+                   quest_marker: Optional[Tuple[int, int]] = None, 
                    camera_x: int = 0, camera_y: int = 0, 
                    settlements: Optional[List[Settlement]] = None,
                    selected_village: Optional[Settlement] = None,
@@ -437,6 +438,29 @@ class MapRenderer:
                 if is_explored:
                     border_color = (0, 0, 0) if is_visible else (20, 20, 20)
                     pygame.draw.rect(surface, border_color, rect, 1)
+        
+        # Draw quest marker if provided (always visible, even in unexplored areas)
+        if quest_marker:
+            qx, qy = quest_marker
+            # Only draw if quest marker is on screen (ignore fog of war)
+            if start_x <= qx < end_x and start_y <= qy < end_y:
+                screen_x = (qx - camera_x) * self.tile_size
+                screen_y = (qy - camera_y) * self.tile_size
+                center_x = screen_x + self.tile_size // 2
+                center_y = screen_y + self.tile_size // 2
+                
+                # Draw quest marker as a yellow star/pentagon
+                size = int(self.tile_size * 0.7)
+                quest_color = (255, 255, 0)  # Yellow
+                # Draw pentagon
+                points = []
+                for i in range(5):
+                    angle = (i * 2 * math.pi / 5) - (math.pi / 2)  # Start at top
+                    px = center_x + size // 2 * math.cos(angle)
+                    py = center_y + size // 2 * math.sin(angle)
+                    points.append((px, py))
+                pygame.draw.polygon(surface, quest_color, points)
+                pygame.draw.polygon(surface, (255, 200, 0), points, 2)  # Orange border
         
         # Draw settlements (only if visible)
         if settlements:
@@ -572,7 +596,8 @@ class MapRenderer:
     
     def render_map_overview(self, map_data: List[List[Terrain]], surface: pygame.Surface,
                            overview_tile_size: int = 1, camera_x: int = 0, camera_y: int = 0,
-                           settlements: Optional[List[Settlement]] = None):
+                           settlements: Optional[List[Settlement]] = None,
+                           quest_marker: Optional[Tuple[int, int]] = None):
         """
         Render the entire map at a zoomed-out scale for overview.
         
@@ -677,6 +702,38 @@ class MapRenderer:
                             pygame.draw.polygon(surface, (255, 215, 0), glow_points)  # Bright gold glow
                             pygame.draw.polygon(surface, (205, 127, 50), points)  # Bronze city
                             pygame.draw.polygon(surface, (255, 255, 255), points, 2)  # White border
+        
+        # Draw quest marker prominently in overview
+        if quest_marker:
+            qx, qy = quest_marker
+            # Only draw if quest marker is visible in overview
+            if start_x <= qx < end_x and start_y <= qy < end_y:
+                screen_x = (qx - camera_x) * overview_tile_size
+                screen_y = (qy - camera_y) * overview_tile_size
+                
+                if 0 <= screen_x < screen_width and 0 <= screen_y < screen_height:
+                    center_x = screen_x + overview_tile_size // 2
+                    center_y = screen_y + overview_tile_size // 2
+                    
+                    # Draw a large, prominent quest marker (star/pentagon)
+                    # Use a fixed large size for visibility regardless of overview_tile_size
+                    size = 20  # Large size for prominence
+                    quest_color = (255, 255, 0)  # Bright yellow
+                    glow_color = (255, 200, 0)  # Orange-yellow glow
+                    
+                    # Draw glow effect (larger outer circle)
+                    pygame.draw.circle(surface, glow_color, (center_x, center_y), size // 2 + 4)
+                    
+                    # Draw pentagon/star
+                    points = []
+                    for i in range(5):
+                        angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                        px = center_x + size // 2 * math.cos(angle)
+                        py = center_y + size // 2 * math.sin(angle)
+                        points.append((px, py))
+                    
+                    pygame.draw.polygon(surface, quest_color, points)
+                    pygame.draw.polygon(surface, (255, 255, 255), points, 2)  # White border for contrast
     
     def _draw_arrow_between_settlements(self, surface: pygame.Surface, 
                                        settlement1: Settlement, settlement2: Settlement,
@@ -1028,6 +1085,63 @@ class MapRenderer:
         # Calculate required height
         base_height = 80  # Title + spacing
         resource_section_height = 70  # Label + text + spacing
+        town_section_height = 70 if village.vassal_to else 0  # Label + text + spacing
+        city_section_height = 70 if (village.vassal_to and village.vassal_to.vassal_to and 
+                                     village.vassal_to.vassal_to.settlement_type == SettlementType.CITY) else 0
+        close_height = 30  # Close instruction + spacing
+        
+        content_height = base_height + resource_section_height + town_section_height + city_section_height + close_height
+        dialog_height = min(max(200, content_height), int(screen_height * 0.9))  # Min 200, max 90% of screen
+        
+        dialog_x = 10  # Lower-left corner
+        dialog_y = screen_height - dialog_height - 10
+        
+        # Draw background
+        dialog_rect = pygame.Rect(dialog_x, dialog_y, dialog_width, dialog_height)
+        pygame.draw.rect(surface, (40, 40, 40), dialog_rect)
+        pygame.draw.rect(surface, (200, 200, 200), dialog_rect, 2)
+        
+        # Draw title
+        title_text = title_font.render(village_name, True, (255, 255, 255))
+        surface.blit(title_text, (dialog_x + 20, dialog_y + 20))
+        
+        y_offset = dialog_y + 60
+        
+        # Show resource being produced
+        resource_label = body_font.render("Produces:", True, (200, 200, 200))
+        surface.blit(resource_label, (dialog_x + 20, y_offset))
+        y_offset += 30
+        
+        resource_text = small_font.render(f"• {resource}", True, (255, 255, 255))
+        surface.blit(resource_text, (dialog_x + 30, y_offset))
+        y_offset += 40
+        
+        # Show town it's producing for
+        if village.vassal_to:
+            town_label = body_font.render("Supplies to:", True, (200, 200, 200))
+            surface.blit(town_label, (dialog_x + 20, y_offset))
+            y_offset += 30
+            
+            town_name = village.vassal_to.name if village.vassal_to.name else "Unnamed Town"
+            town_text = small_font.render(f"• {town_name}", True, (255, 255, 255))
+            surface.blit(town_text, (dialog_x + 30, y_offset))
+            y_offset += 40
+            
+            # Show city if town is vassal to a city
+            if village.vassal_to.vassal_to and village.vassal_to.vassal_to.settlement_type == SettlementType.CITY:
+                city_label = body_font.render("Ultimate Liege:", True, (200, 200, 200))
+                surface.blit(city_label, (dialog_x + 20, y_offset))
+                y_offset += 30
+                
+                city_name = village.vassal_to.vassal_to.name if village.vassal_to.vassal_to.name else "Unnamed City"
+                city_text = small_font.render(f"• {city_name}", True, (255, 215, 0))  # Gold color for city
+                surface.blit(city_text, (dialog_x + 30, y_offset))
+        
+        # Draw close instruction
+        close_text = small_font.render("Click again to close", True, (150, 150, 150))
+        surface.blit(close_text, (dialog_x + 20, dialog_y + dialog_height - 25))
+
+
         town_section_height = 70 if village.vassal_to else 0  # Label + text + spacing
         city_section_height = 70 if (village.vassal_to and village.vassal_to.vassal_to and 
                                      village.vassal_to.vassal_to.settlement_type == SettlementType.CITY) else 0

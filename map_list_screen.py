@@ -159,8 +159,8 @@ class MapListScreen:
         num_saves = len(saves_using_map)
         
         # Dialog dimensions - make taller if there are saves to warn about
-        dialog_width = 600
-        dialog_height = 250 if num_saves > 0 else 200
+        dialog_width = 650
+        dialog_height = 280 if num_saves > 0 else 220
         dialog_x = (screen_width - dialog_width) // 2
         dialog_y = (screen_height - dialog_height) // 2
         
@@ -176,21 +176,44 @@ class MapListScreen:
         warning_font = pygame.font.Font(None, 24)
         
         title_text = title_font.render("Delete Map?", True, (255, 255, 255))
-        title_rect = title_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 40))
+        title_rect = title_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 35))
         self.screen.blit(title_text, title_rect)
         
         confirm_text = font.render(f"Delete map '{map_name}'?", True, (200, 200, 200))
-        confirm_rect = confirm_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 80))
+        confirm_rect = confirm_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 70))
         self.screen.blit(confirm_text, confirm_rect)
         
-        # Warning about saves
+        # Warning about saves - always show warning, but customize message
         if num_saves > 0:
-            warning_text = warning_font.render(
+            warning_text1 = warning_font.render(
                 f"WARNING: This will also delete {num_saves} save file(s) using this map!",
+                True, (255, 100, 100)
+            )
+            warning_rect1 = warning_text1.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 110))
+            self.screen.blit(warning_text1, warning_rect1)
+            
+            warning_text2 = warning_font.render(
+                "All progress in those saves will be lost!",
+                True, (255, 100, 100)
+            )
+            warning_rect2 = warning_text2.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 135))
+            self.screen.blit(warning_text2, warning_rect2)
+            
+            prompt_text = font.render("Delete map and all associated saves? (Y/N)", True, (255, 200, 200))
+            prompt_rect = prompt_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 165))
+            self.screen.blit(prompt_text, prompt_rect)
+        else:
+            # No saves, but still show a warning
+            warning_text = warning_font.render(
+                "This action cannot be undone.",
                 True, (255, 150, 150)
             )
-            warning_rect = warning_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 120))
+            warning_rect = warning_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 110))
             self.screen.blit(warning_text, warning_rect)
+            
+            prompt_text = font.render("Delete this map? (Y/N)", True, (200, 200, 200))
+            prompt_rect = prompt_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 140))
+            self.screen.blit(prompt_text, prompt_rect)
         
         # Yes button
         yes_text = font.render("Yes (Y)", True, (255, 255, 255))
@@ -266,6 +289,87 @@ class MapListScreen:
         # Instructions
         instructions = [
             "Arrow Keys: Navigate",
+            "Enter/Space: Load selected map",
+            "ESC: Back to menu"
+        ]
+        y_offset = 100
+        for instruction in instructions:
+            inst_text = info_font.render(instruction, True, (180, 180, 180))
+            self.screen.blit(inst_text, (50, y_offset))
+            y_offset += 25
+        
+        # Back button
+        button_font = pygame.font.Font(None, 32)
+        back_text = button_font.render("BACK (ESC)", True, (200, 200, 200))
+        back_button_width = 150
+        back_button_height = 40
+        back_button_x = 20
+        back_button_y = 20
+        self.back_button_rect = pygame.Rect(back_button_x, back_button_y, back_button_width, back_button_height)
+        
+        # Draw button background
+        pygame.draw.rect(self.screen, (60, 60, 80), self.back_button_rect)
+        pygame.draw.rect(self.screen, (150, 150, 150), self.back_button_rect, 2)
+        
+        # Draw button text
+        back_text_rect = back_text.get_rect(center=self.back_button_rect.center)
+        self.screen.blit(back_text, back_text_rect)
+        
+        # List of saved maps
+        self.map_rects = []
+        if not self.saved_maps:
+            no_maps_text = item_font.render("No saved maps found", True, (150, 150, 150))
+            no_maps_rect = no_maps_text.get_rect(center=(self.screen.get_width() // 2, 
+                                                         self.screen.get_height() // 2))
+            self.screen.blit(no_maps_text, no_maps_rect)
+        else:
+            start_y = 200
+            item_height = 60
+            visible_items = min(8, len(self.saved_maps))
+            
+            # Calculate which items to show (scroll if needed)
+            start_index = max(0, min(self.selected_map_index - visible_items // 2, 
+                                    len(self.saved_maps) - visible_items))
+            
+            for i in range(start_index, min(start_index + visible_items, len(self.saved_maps))):
+                filepath, map_name, seed = self.saved_maps[i]
+                y_pos = start_y + (i - start_index) * item_height
+                
+                # Create clickable rect
+                item_rect = pygame.Rect(50, y_pos - 5, self.screen.get_width() - 100, item_height)
+                self.map_rects.append((item_rect, i))
+                
+                # Highlight selected item
+                if i == self.selected_map_index:
+                    pygame.draw.rect(self.screen, (60, 60, 80), item_rect)
+                    pygame.draw.rect(self.screen, (100, 150, 255), item_rect, 2)
+                
+                # Render map name
+                map_text = item_font.render(map_name, True, (255, 255, 255))
+                self.screen.blit(map_text, (70, y_pos))
+                
+                # Render seed info if available
+                if seed is not None:
+                    seed_text = seed_font.render(f"Seed: {seed}", True, (150, 150, 150))
+                    self.screen.blit(seed_text, (70, y_pos + 30))
+                else:
+                    seed_text = seed_font.render("Seed: Random", True, (150, 150, 150))
+                    self.screen.blit(seed_text, (70, y_pos + 30))
+                
+                # Delete/Open note
+                note_text = "[X] Delete or [ENTER] to Open"
+                note_surface = seed_font.render(note_text, True, (150, 150, 150))
+                note_x = item_rect.right - note_surface.get_width() - 10
+                self.screen.blit(note_surface, (note_x, y_pos + 30))
+        
+        # Draw confirmation dialog if pending delete
+        if self.pending_delete_index is not None:
+            self._draw_delete_confirmation_dialog()
+        
+        # Update display
+        pygame.display.flip()
+
+
             "Enter/Space: Load selected map",
             "ESC: Back to menu"
         ]

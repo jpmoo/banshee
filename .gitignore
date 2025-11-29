@@ -31,3 +31,4 @@ maps/
 .ruff_cache/
 
 
+openai_config.json

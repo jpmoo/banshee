@@ -16,8 +16,9 @@ from text_input import get_text_input
 from settlements import SettlementType
 from play_screen import PlayScreen
 from save_list_screen import SaveListScreen
-from save_game import load_game
+from save_game import load_game, save_game, save_game
 from dialog import show_message_dialog
+from datetime import datetime
 
 # Constants
 SCREEN_WIDTH = 1024
@@ -240,6 +241,12 @@ def main():
                                     sys.exit(0)
                                 
                                 list_result = map_list.handle_event(list_event)
+                                
+                                # Always render after handling events to show dialogs
+                                map_list.render()
+                                pygame.display.flip()
+                                clock.tick(60)
+                                
                                 if list_result == 'back':
                                     # Return to map menu
                                     map_list_running = False
@@ -281,12 +288,6 @@ def main():
                                         break
                         else:
                             print("Failed to load map. Please try again.")
-                            map_list.render()
-                            
-                            if map_list_running:
-                                map_list.render()
-                                pygame.display.flip()
-                                clock.tick(60)
                         
                         # If we loaded a map, break out of map menu loop
                         if isinstance(result, tuple) and result[0] == 'load':
@@ -413,6 +414,7 @@ def main():
             running = True
             return_to_menu = False  # Flag to return to map menu when ESC is pressed
             enter_play_screen = False  # Flag to enter play screen
+            saved_map_filepath = None  # Track filepath when map is saved in viewing screen
             
             print(f"Debug: Entering map viewing loop. map_data is {'None' if map_data is None else 'not None'}, settlements count: {len(settlements) if settlements else 0}, map_was_generated={map_was_generated}")
             try:
@@ -432,59 +434,59 @@ def main():
                                 # Get mouse position from event
                                 mouse_x, mouse_y = event.pos
                                 
-                                if map_view_mode:
-                                    # Handle clicks in overview map - zoom to clicked location
-                                    # Convert screen coordinates to map tile coordinates
-                                    clicked_tile_x = (mouse_x // overview_tile_size) + overview_camera_x
-                                    clicked_tile_y = (mouse_y // overview_tile_size) + overview_camera_y
-                            
-                                    # Clamp to map bounds
-                                    clicked_tile_x = max(0, min(map_width - 1, clicked_tile_x))
-                                    clicked_tile_y = max(0, min(map_height - 1, clicked_tile_y))
-                            
-                                    # Center the normal camera on the clicked location
-                                    viewport_width = SCREEN_WIDTH // TILE_SIZE
-                                    viewport_height = SCREEN_HEIGHT // TILE_SIZE
-                                    camera_x = clicked_tile_x - viewport_width // 2
-                                    camera_y = clicked_tile_y - viewport_height // 2
-                            
-                                    # Clamp camera to map bounds
-                                    camera_x = max(0, min(map_width - viewport_width, camera_x))
-                                    camera_y = max(0, min(map_height - viewport_height, camera_y))
-                            
-                                    # Exit overview mode
-                                    map_view_mode = False
+                                        if map_view_mode:
+                                            # Handle clicks in overview map - zoom to clicked location
+                                            # Convert screen coordinates to map tile coordinates
+                                            clicked_tile_x = (mouse_x // overview_tile_size) + overview_camera_x
+                                            clicked_tile_y = (mouse_y // overview_tile_size) + overview_camera_y
+                                    
+                                            # Clamp to map bounds
+                                            clicked_tile_x = max(0, min(map_width - 1, clicked_tile_x))
+                                            clicked_tile_y = max(0, min(map_height - 1, clicked_tile_y))
+                                    
+                                            # Center the normal camera on the clicked location
+                                            viewport_width = SCREEN_WIDTH // TILE_SIZE
+                                            viewport_height = SCREEN_HEIGHT // TILE_SIZE
+                                            camera_x = clicked_tile_x - viewport_width // 2
+                                            camera_y = clicked_tile_y - viewport_height // 2
+                                    
+                                            # Clamp camera to map bounds
+                                            camera_x = max(0, min(map_width - viewport_width, camera_x))
+                                            camera_y = max(0, min(map_height - viewport_height, camera_y))
+                                    
+                                            # Exit overview mode
+                                            map_view_mode = False
 
-                                else:
-                                    # Handle mouse clicks on settlements (only in normal view)
+                                        else:
+                                            # Handle mouse clicks on settlements (only in normal view)
                                     # Get mouse position from event (already set above)
-                                    # Convert screen coordinates to tile coordinates
-                                    tile_x = mouse_x // TILE_SIZE + camera_x
-                                    tile_y = mouse_y // TILE_SIZE + camera_y
+                                            # Convert screen coordinates to tile coordinates
+                                            tile_x = mouse_x // TILE_SIZE + camera_x
+                                            tile_y = mouse_y // TILE_SIZE + camera_y
+                                    
+                                            # Check if a settlement was clicked
+                                            clicked_settlement = None
 
-                                    # Check if a settlement was clicked
-                                    clicked_settlement = None
+                                            for settlement in settlements:
+                                                sx, sy = settlement.get_position()
 
-                                    for settlement in settlements:
-                                        sx, sy = settlement.get_position()
-
-                                        # Check if click is within the settlement's tile
-                                        if sx == tile_x and sy == tile_y:
-                                            clicked_settlement = settlement
-                                            break
-
-                                    if clicked_settlement:
+                                                # Check if click is within the settlement's tile
+                                                if sx == tile_x and sy == tile_y:
+                                                    clicked_settlement = settlement
+                                                    break
+                                    
+                                            if clicked_settlement:
                                         # Set selection for arrows to be drawn
-                                        if clicked_settlement.settlement_type == SettlementType.VILLAGE:
-                                            selected_village = clicked_settlement
+                                                if clicked_settlement.settlement_type == SettlementType.VILLAGE:
+                                                        selected_village = clicked_settlement
                                             selected_town = None
                                             selected_city = None
-                                        elif clicked_settlement.settlement_type == SettlementType.TOWN:
-                                            selected_town = clicked_settlement
+                                                elif clicked_settlement.settlement_type == SettlementType.TOWN:
+                                                        selected_town = clicked_settlement
                                             selected_village = None
                                             selected_city = None
-                                        elif clicked_settlement.settlement_type == SettlementType.CITY:
-                                            selected_city = clicked_settlement
+                                                elif clicked_settlement.settlement_type == SettlementType.CITY:
+                                                        selected_city = clicked_settlement
                                             selected_village = None
                                             selected_town = None
                                         
@@ -497,8 +499,8 @@ def main():
                                         show_settlement_dialog(screen, clock, clicked_settlement, 
                                                               settlements, dialog_worldbuilding_data)
 
-                                    else:
-                                        # Clicked on empty space - deselect everything
+                                            else:
+                                                # Clicked on empty space - deselect everything
 
                                                 selected_village = None
 
@@ -666,6 +668,9 @@ def main():
                                             if save_map(map_data, map_width, map_height, filepath, map_name, settlements, seed=current_seed, worldbuilding_data=worldbuilding_data):
 
                                                 print(f"Map '{map_name}' saved to {filepath}")
+                                                
+                                                # Store the filepath for use when entering play screen
+                                                saved_map_filepath = filepath
 
                                                 if current_seed is not None:
 
@@ -772,8 +777,10 @@ def main():
 
 
                         # Render overview map
+                        # Quest marker not available in map viewing screen (only in play screen)
                         renderer.render_map_overview(map_data, screen, overview_tile_size,
-                                                    overview_camera_x, overview_camera_y, settlements)
+                                                    overview_camera_x, overview_camera_y, settlements,
+                                                    quest_marker=None)
                         
                         # Draw viewport indicator showing where normal camera is
                         viewport_width = SCREEN_WIDTH // TILE_SIZE
@@ -854,7 +861,8 @@ def main():
                         # Render map
 
 
-                        renderer.render_map(map_data, screen, camera_x, camera_y, settlements, 
+                        renderer.render_map(map_data, screen, quest_marker=None,
+                                    camera_x=camera_x, camera_y=camera_y, settlements=settlements, 
 
 
                                                       selected_village=selected_village,
@@ -930,8 +938,11 @@ def main():
 
                         elif map_was_generated:
 
-                            # For generated maps, we don't have a filepath yet (would need to save first)
-
+                            # For generated maps, check if it was saved in the viewing screen
+                            if saved_map_filepath:
+                                current_map_filepath = saved_map_filepath
+                            else:
+                                # Map hasn't been saved yet
                             current_map_filepath = None
 
                 
@@ -947,6 +958,44 @@ def main():
                             tile_size=TILE_SIZE, map_filepath=current_map_filepath,
                             worldbuilding_data=current_worldbuilding_data
                         )
+                        
+                        # Auto-save when starting a new game
+                        # If map hasn't been saved yet (newly generated), save it first
+                        if current_map_filepath is None:
+                            # Generate auto-save map name
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            auto_map_name = f"Auto_{timestamp}"
+                            auto_map_filepath = os.path.join("maps", f"{auto_map_name}.map")
+                            
+                            # Save the map first
+                            if save_map(map_data, map_width, map_height, auto_map_filepath, 
+                                       auto_map_name, settlements, seed=current_seed if 'current_seed' in locals() else None,
+                                       worldbuilding_data=current_worldbuilding_data):
+                                # Update play_screen's map_filepath
+                                play_screen.map_filepath = auto_map_filepath
+                                current_map_filepath = auto_map_filepath
+                        
+                        # Always save the game state when starting a new game (map may already be saved)
+                        if current_map_filepath:
+                            saved_filepath = save_game(
+                                current_map_filepath,
+                                play_screen.player_x,
+                                play_screen.player_y,
+                                play_screen.calendar,
+                                play_screen.command_messages,
+                                play_screen.explored_tiles,
+                                play_screen.visible_tiles,
+                                play_screen.settlements,
+                                play_screen.current_tileset_info,
+                                play_screen.current_quest,
+                                play_screen.in_quest_location,
+                                play_screen.quest_location_size,
+                                play_screen.quest_location_approach_direction,
+                                play_screen.quest_archive,
+                                play_screen.settlement_renown
+                            )
+                            if saved_filepath:
+                                play_screen.add_command_message(f"New game started. Auto-saved to {saved_filepath}")
 
                         play_running = True
 
@@ -981,6 +1030,53 @@ def main():
 
                     
                             if play_running:
+
+                                play_screen.update(dt)
+
+                                play_screen.render()
+
+                                pygame.display.flip()
+
+                            else:
+
+                                break
+
+                
+                        # After play screen, check if we came from save load
+
+                        if result == 'play_from_save':
+
+                            # If we loaded from save, we're done (could return to menu or quit)
+
+                            result = None
+
+                            main_menu_running = True
+
+                            continue
+
+                
+                        # After play screen, return to map menu
+
+                        if return_to_menu:
+
+                            break
+
+                    
+            except Exception as e:
+                print(f"ERROR in map viewing loop: {e}")
+                import traceback
+                traceback.print_exc()
+                # Don't break - let it continue to show menu again
+                pass
+            
+            # After map viewing loop ends, return to main menu
+            # (This happens when ESC is pressed or when user quits)
+            print("Debug: Map viewing loop ended, continuing to main menu")
+            continue  # Loop back to show main menu again
+
+if __name__ == "__main__":
+    main()
+
 
                                 play_screen.update(dt)
 

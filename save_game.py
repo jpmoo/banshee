@@ -16,6 +16,12 @@ def save_game(map_filepath: str, player_x: int, player_y: int,
               explored_tiles: set, visible_tiles: set,
               settlements: Optional[List] = None,
               tileset_info: Optional[Dict] = None,
+              current_quest: Optional[Dict] = None,
+              in_quest_location: bool = False,
+              quest_location_size: int = 0,
+              quest_location_approach_direction: Optional[str] = None,
+              quest_archive: Optional[List] = None,
+              settlement_renown: Optional[Dict] = None,
               directory: str = "saves") -> Optional[str]:
     """
     Save the current game state.
@@ -137,6 +143,20 @@ def save_game(map_filepath: str, player_x: int, player_y: int,
                         # If that fails (different drives on Windows), keep original
                         print(f"Warning: Could not convert JSON path to relative: {json_path}")
         
+        # Prepare quest data for saving (remove non-pickleable objects)
+        saved_quest = None
+        if current_quest:
+            saved_quest = current_quest.copy()
+            # Remove quest_giver (Settlement object) if present - it's not pickleable
+            if 'quest_giver' in saved_quest:
+                # Store quest giver coordinates and type instead
+                quest_giver = saved_quest['quest_giver']
+                if hasattr(quest_giver, 'x') and hasattr(quest_giver, 'y'):
+                    saved_quest['quest_giver_x'] = quest_giver.x
+                    saved_quest['quest_giver_y'] = quest_giver.y
+                    saved_quest['quest_giver_type'] = quest_giver.settlement_type.value
+                del saved_quest['quest_giver']
+        
         # Prepare save data
         save_data = {
             'map_filepath': relative_map_path,  # Store relative path
@@ -153,6 +173,12 @@ def save_game(map_filepath: str, player_x: int, player_y: int,
             'visible_tiles': list(visible_tiles),  # Convert set to list for pickle
             'settlement_economy': settlement_economy,  # Save economy state
             'tileset_info': saved_tileset_info,  # Save current tileset info (with relative path)
+            'current_quest': saved_quest,  # Save quest state (without non-pickleable objects)
+            'in_quest_location': in_quest_location,  # Save quest location state
+            'quest_location_size': quest_location_size,  # Save quest location map size
+            'settlement_renown': settlement_renown or {},  # Save renown with settlements
+            'quest_location_approach_direction': quest_location_approach_direction,  # Save approach direction
+            'quest_archive': quest_archive if quest_archive is not None else [],  # Save quest archive
             'save_timestamp': datetime.now().isoformat(),
         }
         
@@ -256,6 +282,32 @@ def get_saved_games(directory: str = "saves") -> List[Tuple[str, Dict]]:
         if filename.endswith('.banshee') and filename.startswith('save_'):
             filepath = os.path.join(directory, filename)
             try:
+                # Load save data to get metadata
+                # Use a simplified load that doesn't convert paths for metadata display
+                with gzip.open(filepath, 'rb') as f:
+                    save_data = pickle.load(f)
+                
+                # Convert lists back to sets (but we don't need them for display)
+                if 'explored_tiles' in save_data and isinstance(save_data['explored_tiles'], list):
+                    save_data['explored_tiles'] = set(save_data['explored_tiles'])
+                if 'visible_tiles' in save_data and isinstance(save_data['visible_tiles'], list):
+                    save_data['visible_tiles'] = set(save_data['visible_tiles'])
+                
+                if save_data:
+                    saved_games.append((filepath, save_data))
+                    print(f"Debug: Loaded save file {filename}")
+            except Exception as e:
+                print(f"Error reading save file {filename}: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+    
+    # Sort by save timestamp (newest first)
+    saved_games.sort(key=lambda x: x[1].get('save_timestamp', ''), reverse=True)
+    print(f"Debug: Returning {len(saved_games)} saved games")
+    return saved_games
+
+
                 # Load save data to get metadata
                 # Use a simplified load that doesn't convert paths for metadata display
                 with gzip.open(filepath, 'rb') as f:

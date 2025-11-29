@@ -239,3 +239,6 @@ When sharing or distributing this software, please include:
 
 - Built with [Pygame](https://www.pygame.org/)
 - Perlin noise implementation for procedural generation
+
+- Built with [Pygame](https://www.pygame.org/)
+- Perlin noise implementation for procedural generation

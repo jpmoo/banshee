@@ -362,7 +362,7 @@ class MapGenerator:
         map_data = self.add_impassable_borders(map_data, elevation_map)
         self._debug_terrain_distribution(map_data, thresholds, "After borders (FINAL)")
         
-        self._update_progress(0.98, "Placing settlements...")
+        self._update_progress(0.98, "Placing towns and villages...")
         settlements = self.place_towns(map_data, river_tiles, lake_tiles)
         
         self._update_progress(0.99, "Placing cities...")
