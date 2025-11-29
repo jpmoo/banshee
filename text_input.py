@@ -54,20 +54,21 @@ def get_text_input(screen: pygame.Surface, prompt: str, default: str = "",
                 elif event.key == pygame.K_BACKSPACE:
                     # Backspace - remove last character
                     input_text = input_text[:-1]
-                else:
+                elif event.unicode and len(input_text) < max_length:
                     # Add character if printable and within max length
-                    if event.unicode and len(input_text) < max_length:
-                        # Only accept printable ASCII characters
                         if event.unicode.isprintable() and ord(event.unicode) < 128:
                             input_text += event.unicode
         
         # Render
         screen.fill((20, 20, 30))
         
-        # Draw prompt
-        prompt_surface = prompt_font.render(prompt, True, (255, 255, 255))
+        # Draw prompt (handle line breaks)
+        prompt_lines = prompt.split('\n')
+        prompt_y = screen.get_height() // 2 - 50 - (len(prompt_lines) - 1) * 20
+        for i, line in enumerate(prompt_lines):
+            prompt_surface = prompt_font.render(line, True, (255, 255, 255))
         prompt_rect = prompt_surface.get_rect(center=(screen.get_width() // 2, 
-                                                      screen.get_height() // 2 - 50))
+                                                          prompt_y + i * 40))
         screen.blit(prompt_surface, prompt_rect)
         
         # Draw input box
@@ -80,15 +81,24 @@ def get_text_input(screen: pygame.Surface, prompt: str, default: str = "",
         pygame.draw.rect(screen, (40, 40, 50), input_box_rect)
         pygame.draw.rect(screen, (150, 150, 150), input_box_rect, 2)
         
-        # Draw input text
+        # Draw input text - handle long text by showing the end
         text_surface = input_font.render(input_text, True, (255, 255, 255))
         text_x = input_box_x + 10
         text_y = input_box_y + (input_box_height - text_surface.get_height()) // 2
         
-        # Clip text if too long
+        # If text is too long, show the end (right side) of the text
         if text_surface.get_width() > input_box_width - 20:
-            # Draw text from the right side (show end of text)
+            # Calculate how much text we can show
+            available_width = input_box_width - 20
+            # Show the end of the text by adjusting x position
             text_x = input_box_x + input_box_width - text_surface.get_width() - 10
+            # But don't let it go negative - clip the surface if needed
+            if text_x < input_box_x + 10:
+                # Create a subsurface showing the right portion
+                clip_x = text_surface.get_width() - (input_box_width - 20)
+                clip_rect = pygame.Rect(clip_x, 0, input_box_width - 20, text_surface.get_height())
+                text_surface = text_surface.subsurface(clip_rect)
+                text_x = input_box_x + 10
         
         screen.blit(text_surface, (text_x, text_y))
         

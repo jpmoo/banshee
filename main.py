@@ -17,6 +17,7 @@ from settlements import SettlementType
 from play_screen import PlayScreen
 from save_list_screen import SaveListScreen
 from save_game import load_game
+from dialog import show_message_dialog
 
 # Constants
 SCREEN_WIDTH = 1024
@@ -127,7 +128,7 @@ def main():
                                     if map_filepath and os.path.exists(map_filepath):
                                         loaded = load_map(map_filepath)
                                         if loaded:
-                                            map_data, map_width, map_height, map_name, loaded_settlements, seed = loaded
+                                            map_data, map_width, map_height, map_name, loaded_settlements, seed, worldbuilding_data = loaded
                                             settlements = loaded_settlements
                                             
                                             # Update save list with settlements for location display
@@ -138,7 +139,7 @@ def main():
                                             loaded_play_screen = PlayScreen(
                                                 screen, map_data, map_width, map_height, settlements,
                                                 tile_size=TILE_SIZE, map_filepath=map_filepath,
-                                                saved_state=saved_state
+                                                saved_state=saved_state, worldbuilding_data=worldbuilding_data
                                             )
                                             save_list_running = False
                                             main_menu_running = False
@@ -250,10 +251,11 @@ def main():
                                     print(f"Loading map from {filepath}...")
                                     loaded = load_map(filepath)
                                     if loaded:
-                                        map_data, map_width, map_height, map_name, loaded_settlements, seed = loaded
+                                        map_data, map_width, map_height, map_name, loaded_settlements, seed, worldbuilding_data = loaded
                                         current_seed = seed  # Store the loaded seed
                                         settlements = loaded_settlements  # Assign loaded settlements
                                         map_was_generated = False  # Track that this map was loaded, not generated
+                                        
                                         print(f"Map '{map_name}' loaded: {map_width}x{map_height} tiles")
                                         if seed is not None:
                                             print(f"Map seed: {seed}")
@@ -350,6 +352,7 @@ def main():
                 # Get settlements from generator
                 if generator and hasattr(generator, 'settlements'):
                     settlements = generator.settlements
+                    worldbuilding_data = None  # No worldbuilding data generation
                     town_count = sum(1 for s in settlements if s.settlement_type == SettlementType.TOWN)
                     village_count = sum(1 for s in settlements if s.settlement_type == SettlementType.VILLAGE)
                     city_count = sum(1 for s in settlements if s.settlement_type == SettlementType.CITY)
@@ -423,56 +426,38 @@ def main():
                         elif event.type == pygame.MOUSEBUTTONDOWN:
 
                             if event.button == 1:  # Left mouse button
-
+                                # Get mouse position from event
+                                mouse_x, mouse_y = event.pos
                                 
                                         if map_view_mode:
-
                                             # Handle clicks in overview map - zoom to clicked location
-
                                             # Convert screen coordinates to map tile coordinates
-
                                             clicked_tile_x = (mouse_x // overview_tile_size) + overview_camera_x
-
                                             clicked_tile_y = (mouse_y // overview_tile_size) + overview_camera_y
-
                                     
                                             # Clamp to map bounds
-
                                             clicked_tile_x = max(0, min(map_width - 1, clicked_tile_x))
-
                                             clicked_tile_y = max(0, min(map_height - 1, clicked_tile_y))
-
                                     
                                             # Center the normal camera on the clicked location
-
                                             viewport_width = SCREEN_WIDTH // TILE_SIZE
-
                                             viewport_height = SCREEN_HEIGHT // TILE_SIZE
-
                                             camera_x = clicked_tile_x - viewport_width // 2
-
                                             camera_y = clicked_tile_y - viewport_height // 2
-
                                     
                                             # Clamp camera to map bounds
-
                                             camera_x = max(0, min(map_width - viewport_width, camera_x))
-
                                             camera_y = max(0, min(map_height - viewport_height, camera_y))
-
                                     
                                             # Exit overview mode
-
                                             map_view_mode = False
 
                                         else:
 
                                             # Handle mouse clicks on settlements (only in normal view)
-
+                                            # Get mouse position from event (already set above)
                                             # Convert screen coordinates to tile coordinates
-
                                             tile_x = mouse_x // TILE_SIZE + camera_x
-
                                             tile_y = mouse_y // TILE_SIZE + camera_y
 
                                     
@@ -494,54 +479,24 @@ def main():
 
                                     
                                             if clicked_settlement:
-
+                                                # Set selection for arrows to be drawn
                                                 if clicked_settlement.settlement_type == SettlementType.VILLAGE:
-
-                                                    # Toggle village selection
-
-                                                    if selected_village == clicked_settlement:
-
-                                                        selected_village = None  # Deselect if clicking same village
-
-                                                    else:
-
                                                         selected_village = clicked_settlement
-
-                                                        selected_town = None  # Close town dialogue if open
-
-                                                        selected_city = None  # Close city dialogue if open
-
+                                                    selected_town = None
+                                                    selected_city = None
                                                 elif clicked_settlement.settlement_type == SettlementType.TOWN:
-
-                                                    # Toggle town dialogue
-
-                                                    if selected_town == clicked_settlement:
-
-                                                        selected_town = None  # Close dialogue if clicking same town
-
-                                                    else:
-
                                                         selected_town = clicked_settlement
-
-                                                        selected_village = None  # Deselect village if one is selected
-
-                                                        selected_city = None  # Close city dialogue if open
-
+                                                    selected_village = None
+                                                    selected_city = None
                                                 elif clicked_settlement.settlement_type == SettlementType.CITY:
-
-                                                    # Toggle city dialogue
-
-                                                    if selected_city == clicked_settlement:
-
-                                                        selected_city = None  # Close dialogue if clicking same city
-
-                                                    else:
-
                                                         selected_city = clicked_settlement
-
-                                                        selected_village = None  # Deselect village if one is selected
-
-                                                        selected_town = None  # Close town dialogue if open
+                                                    selected_village = None
+                                                    selected_town = None
+                                                
+                                                # Show settlement dialog with worldbuilding data (if available from saved map)
+                                                from settlement_dialog import show_settlement_dialog
+                                                show_settlement_dialog(screen, clock, clicked_settlement, 
+                                                                      settlements, worldbuilding_data)
 
                                             else:
 
@@ -640,10 +595,9 @@ def main():
                                 map_was_generated = True  # Mark as generated after regeneration
 
                                 # Get settlements from generator
-
                                 if generator and hasattr(generator, 'settlements'):
-
                                     settlements = generator.settlements
+                                    worldbuilding_data = None  # No worldbuilding data generation
 
                                     town_count = sum(1 for s in settlements if s.settlement_type == SettlementType.TOWN)
 
@@ -711,7 +665,7 @@ def main():
 
                                                 print(f"Debug: Settlement types: {[s.settlement_type.value for s in settlements[:5]]}")
 
-                                            if save_map(map_data, map_width, map_height, filepath, map_name, settlements, seed=current_seed):
+                                            if save_map(map_data, map_width, map_height, filepath, map_name, settlements, seed=current_seed, worldbuilding_data=worldbuilding_data):
 
                                                 print(f"Map '{map_name}' saved to {filepath}")
 
@@ -914,17 +868,7 @@ def main():
                                                       selected_city=selected_city)
 
 
-                        # Draw village dialogue if a village is selected
-                        if selected_village:
-                            renderer.draw_village_dialogue(screen, selected_village)
-                        
-                        # Draw town dialogue if a town is selected
-                        if selected_town:
-                            renderer.draw_town_dialogue(screen, selected_town)
-                        
-                        # Draw city dialogue if a city is selected
-                        if selected_city:
-                            renderer.draw_city_dialogue(screen, selected_city)
+                        # Settlement dialogs are now shown via show_settlement_dialog when clicked
 
 
                         # Draw UI info
@@ -993,12 +937,17 @@ def main():
                             current_map_filepath = None
 
                 
+                        # Get worldbuilding_data if available (from loaded map or generator)
+                        current_worldbuilding_data = None
+                        if 'worldbuilding_data' in locals():
+                            current_worldbuilding_data = worldbuilding_data
+                        elif 'generator' in locals() and hasattr(generator, 'worldbuilding_data'):
+                            current_worldbuilding_data = generator.worldbuilding_data
+                        
                         play_screen = PlayScreen(
-
                             screen, map_data, map_width, map_height, settlements,
-
-                            tile_size=TILE_SIZE, map_filepath=current_map_filepath
-
+                            tile_size=TILE_SIZE, map_filepath=current_map_filepath,
+                            worldbuilding_data=current_worldbuilding_data
                         )
 
                         play_running = True

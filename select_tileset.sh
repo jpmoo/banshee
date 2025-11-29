@@ -15,11 +15,14 @@ else
     exit 1
 fi
 
-# Find all PNG files in current directory
+# Find all PNG files directly in tilesets folder (not subdirectories)
 png_files=()
-while IFS= read -r -d '' file; do
-    png_files+=("$file")
-done < <(find . -maxdepth 1 -type f -iname "*.png" -print0)
+tilesets_dir="tilesets"
+if [ -d "$tilesets_dir" ]; then
+    while IFS= read -r -d '' file; do
+        png_files+=("$file")
+    done < <(find "$tilesets_dir" -maxdepth 1 -type f -iname "*.png" -print0)
+fi
 
 if [ ${#png_files[@]} -eq 0 ]; then
     echo "Error: No PNG files found in current directory."
@@ -52,6 +55,16 @@ selected_abs=$(cd "$(dirname "$selected_file")" && pwd)/$(basename "$selected_fi
 
 echo ""
 echo "Selected: $(basename "$selected_abs")"
+
+# Delete existing JSON file for this PNG (if it exists)
+png_basename=$(basename "$selected_abs" .png)
+png_basename=$(basename "$png_basename" .PNG)  # Handle uppercase extension
+json_file="tilesets/${png_basename}.json"
+if [ -f "$json_file" ]; then
+    rm "$json_file"
+    echo "Deleted existing JSON file: $json_file"
+fi
+
 echo ""
 
 # Run the Python script with the selected tileset

@@ -4,6 +4,9 @@ __pycache__/
 *$py.class
 *.so
 .Python
+venv/
+env/
+ENV/
 
 # macOS
 .DS_Store
@@ -17,8 +20,14 @@ __pycache__/
 *.swo
 *~
 
-# Game saves and maps (keep these)
-# saves/
-# maps/
+# Game saves and maps
+saves/
+maps/
+
+
+# Python formatting/linting
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 

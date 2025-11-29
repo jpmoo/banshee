@@ -9,6 +9,7 @@ from typing import List, Tuple, Set, Dict, Optional
 from terrain import Terrain, TerrainType
 from perlin_noise import PerlinNoise
 from settlements import Settlement, SettlementType
+from worldbuilding import generate_worldbuilding_data
 
 
 class MapGenerator:
@@ -370,11 +371,7 @@ class MapGenerator:
         
         # Update town names for independent towns (not vassals to any city)
         for settlement in settlements:
-            if (settlement.settlement_type == SettlementType.TOWN and 
-                settlement.vassal_to is None):
-                # Rename independent towns
-                original_name = settlement.name if settlement.name else "Unnamed"
-                settlement.name = f"The Free Town of {original_name}"
+            # Names are now assigned from worldbuilding data
         
         # Print final settlement counts
         town_count = sum(1 for s in settlements if s.settlement_type == SettlementType.TOWN)
@@ -382,6 +379,13 @@ class MapGenerator:
         city_count = len(cities)
         total_settlements = len(settlements)
         print(f"Final settlement counts: {city_count} cities, {town_count} towns, {village_count} villages (total: {total_settlements} settlements)")
+        
+        # Generate worldbuilding data for all settlements
+        self._update_progress(0.95, "Generating worldbuilding data...")
+        self.worldbuilding_data = generate_worldbuilding_data(settlements, seed=self.seed, map_data=map_data)
+        
+        # Assign settlement names from worldbuilding data (extract from leader names)
+        self._assign_settlement_names_from_worldbuilding(settlements)
         
         self._update_progress(1.0, "Map generation complete!")
         
@@ -2123,13 +2127,8 @@ class MapGenerator:
                     break
             
             if not too_close:
-                # Assign a unique name from the list (pop from shuffled list to ensure no duplicates)
-                if town_names:
-                    town_name = town_names.pop(0)  # Remove and use first name
-                else:
-                    # If we run out of names, use a generic name
-                    town_name = f"Town {len(towns) + 1}"
-                new_town = Settlement(SettlementType.TOWN, x, y, name=town_name)
+                # Name will be assigned from worldbuilding data later
+                new_town = Settlement(SettlementType.TOWN, x, y, name=None)
                 towns.append(new_town)
                 # Add to spatial grid
                 if (grid_x, grid_y) not in town_grid:
@@ -2166,14 +2165,10 @@ class MapGenerator:
                 map_data, None, is_water_village=True, occupied_tiles=occupied_tiles
             )
             if water_village:
-                # Assign a unique name from the list
-                if village_names:
-                    village_name = village_names.pop(0)  # Remove and use first name
-                else:
-                    village_name = f"Village {len(villages) + 1}"
+                # Name will be assigned from worldbuilding data later
                 resource = "fish and fowl"
                 new_village = Settlement(SettlementType.VILLAGE, water_village[0], water_village[1], 
-                                        name=village_name, vassal_to=town, supplies_resource=resource)
+                                        name=None, vassal_to=town, supplies_resource=resource)
                 villages.append(new_village)
                 town.vassal_villages.append(new_village)  # Add to town's vassal list
                 if resource not in town.resource_villages:
@@ -2187,14 +2182,10 @@ class MapGenerator:
                 map_data, TerrainType.GRASSLAND, occupied_tiles=occupied_tiles
             )
             if agriculture_village:
-                # Assign a unique name from the list
-                if village_names:
-                    village_name = village_names.pop(0)  # Remove and use first name
-                else:
-                    village_name = f"Village {len(villages) + 1}"
+                # Name will be assigned from worldbuilding data later
                 resource = "grain and livestock"
                 new_village = Settlement(SettlementType.VILLAGE, agriculture_village[0], agriculture_village[1],
-                                        name=village_name, vassal_to=town, supplies_resource=resource)
+                                        name=None, vassal_to=town, supplies_resource=resource)
                 villages.append(new_village)
                 town.vassal_villages.append(new_village)  # Add to town's vassal list
                 if resource not in town.resource_villages:
@@ -2208,14 +2199,10 @@ class MapGenerator:
                 map_data, TerrainType.HILLS, occupied_tiles=occupied_tiles
             )
             if mining_village:
-                # Assign a unique name from the list
-                if village_names:
-                    village_name = village_names.pop(0)  # Remove and use first name
-                else:
-                    village_name = f"Village {len(villages) + 1}"
+                # Name will be assigned from worldbuilding data later
                 resource = "ore"
                 new_village = Settlement(SettlementType.VILLAGE, mining_village[0], mining_village[1],
-                                        name=village_name, vassal_to=town, supplies_resource=resource)
+                                        name=None, vassal_to=town, supplies_resource=resource)
                 villages.append(new_village)
                 town.vassal_villages.append(new_village)  # Add to town's vassal list
                 if resource not in town.resource_villages:
@@ -2230,14 +2217,10 @@ class MapGenerator:
                 occupied_tiles=occupied_tiles
             )
             if lumber_village:
-                # Assign a unique name from the list
-                if village_names:
-                    village_name = village_names.pop(0)  # Remove and use first name
-                else:
-                    village_name = f"Village {len(villages) + 1}"
+                # Name will be assigned from worldbuilding data later
                 resource = "lumber"
                 new_village = Settlement(SettlementType.VILLAGE, lumber_village[0], lumber_village[1],
-                                        name=village_name, vassal_to=town, supplies_resource=resource)
+                                        name=None, vassal_to=town, supplies_resource=resource)
                 villages.append(new_village)
                 town.vassal_villages.append(new_village)  # Add to town's vassal list
                 if resource not in town.resource_villages:
@@ -2365,16 +2348,9 @@ class MapGenerator:
             if len(available_towns) < 3:
                 continue  # Not enough unclaimed towns
             
-            # Assign a unique name
-            if name_index < len(city_names):
-                city_name = city_names[name_index]
-                name_index += 1
-            else:
-                city_name = f"City {name_index + 1}"
-                name_index += 1
-            
+            # Name will be assigned from worldbuilding data later
             # Create city
-            new_city = Settlement(SettlementType.CITY, city_x, city_y, name=city_name)
+            new_city = Settlement(SettlementType.CITY, city_x, city_y, name=None)
             cities.append(new_city)
             occupied_tiles.add((city_x, city_y))
             
@@ -2587,6 +2563,122 @@ class MapGenerator:
                             return (rx, ry)
         
         return None
+    
+    def _assign_settlement_names_from_worldbuilding(self, settlements: List[Settlement]):
+        """
+        Assign settlement names from worldbuilding data.
+        Extracts the name part (without title) from leader names.
+        """
+        if not self.worldbuilding_data:
+            return
+        
+        cities = [s for s in settlements if s.settlement_type == SettlementType.CITY]
+        towns = [s for s in settlements if s.settlement_type == SettlementType.TOWN]
+        villages = [s for s in settlements if s.settlement_type == SettlementType.VILLAGE]
+        
+        # Assign city names
+        city_index = 1
+        for city in cities:
+            city_key = f"City {city_index}"
+            if city_key in self.worldbuilding_data:
+                city_data = self.worldbuilding_data[city_key]
+                if "leader" in city_data and "name" in city_data["leader"]:
+                    leader_name = city_data["leader"]["name"]
+                    # Extract name part (everything after the last space, which is the title)
+                    # Format: "Title Name" -> "Name"
+                    name_parts = leader_name.split()
+                    if len(name_parts) > 1:
+                        city.name = " ".join(name_parts[1:])  # Everything after the title
+                    else:
+                        city.name = leader_name
+            city_index += 1
+        
+        # Assign town names (under cities)
+        city_index = 1
+        for city in cities:
+            city_key = f"City {city_index}"
+            if city_key in self.worldbuilding_data:
+                city_data = self.worldbuilding_data[city_key]
+                vassal_towns = [t for t in towns if t.vassal_to == city]
+                town_index = 1
+                for town in vassal_towns:
+                    town_key = f"Vassal Town {town_index}"
+                    if town_key in city_data:
+                        town_data = city_data[town_key]
+                        if "leader" in town_data and "name" in town_data["leader"]:
+                            leader_name = town_data["leader"]["name"]
+                            name_parts = leader_name.split()
+                            if len(name_parts) > 1:
+                                town.name = " ".join(name_parts[1:])
+                            else:
+                                town.name = leader_name
+                    town_index += 1
+            city_index += 1
+        
+        # Assign free town names
+        free_town_key = "City NONE FOR FREE TOWN"
+        if free_town_key in self.worldbuilding_data:
+            free_town_data = self.worldbuilding_data[free_town_key]
+            free_towns = [t for t in towns if t.vassal_to is None]
+            town_index = 1
+            for town in free_towns:
+                town_key = f"Vassal Town {town_index}"
+                if town_key in free_town_data:
+                    town_data = free_town_data[town_key]
+                    if "leader" in town_data and "name" in town_data["leader"]:
+                        leader_name = town_data["leader"]["name"]
+                        name_parts = leader_name.split()
+                        if len(name_parts) > 1:
+                            town.name = " ".join(name_parts[1:])
+                        else:
+                            town.name = leader_name
+                town_index += 1
+        
+        # Assign village names
+        city_index = 1
+        for city in cities:
+            city_key = f"City {city_index}"
+            if city_key in self.worldbuilding_data:
+                city_data = self.worldbuilding_data[city_key]
+                vassal_towns = [t for t in towns if t.vassal_to == city]
+                town_index = 1
+                for town in vassal_towns:
+                    town_key = f"Vassal Town {town_index}"
+                    if town_key in city_data:
+                        town_data = city_data[town_key]
+                        vassal_villages = [v for v in villages if v.vassal_to == town]
+                        village_index = 1
+                        for village in vassal_villages:
+                            village_key = f"Vassal Village {village_index}"
+                            if village_key in town_data:
+                                village_data = town_data[village_key]
+                                # Use the "name" field from village_data (village name, not leader name)
+                                if "name" in village_data:
+                                    village.name = village_data["name"]
+                            village_index += 1
+                    town_index += 1
+            city_index += 1
+        
+        # Assign village names for free towns
+        if free_town_key in self.worldbuilding_data:
+            free_town_data = self.worldbuilding_data[free_town_key]
+            free_towns = [t for t in towns if t.vassal_to is None]
+            town_index = 1
+            for town in free_towns:
+                town_key = f"Vassal Town {town_index}"
+                if town_key in free_town_data:
+                    town_data = free_town_data[town_key]
+                    vassal_villages = [v for v in villages if v.vassal_to == town]
+                    village_index = 1
+                    for village in vassal_villages:
+                        village_key = f"Vassal Village {village_index}"
+                        if village_key in town_data:
+                            village_data = town_data[village_key]
+                            # Use the "name" field from village_data (village name, not leader name)
+                            if "name" in village_data:
+                                village.name = village_data["name"]
+                        village_index += 1
+                town_index += 1
     
     # Keep old methods for backwards compatibility
     def generate_random(self) -> List[List[Terrain]]:

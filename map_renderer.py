@@ -6,7 +6,7 @@ import pygame
 import math
 import os
 import json
-from typing import List, Optional
+from typing import List, Optional, Dict
 from terrain import Terrain, TerrainType
 from settlements import Settlement, SettlementType
 
@@ -14,55 +14,102 @@ from settlements import Settlement, SettlementType
 class MapRenderer:
     """Renders the map to a pygame surface."""
     
-    def __init__(self, tile_size: int = 32, tileset_path: str = "16x16_old_map_Denzi090523-1.PNG"):
+    def __init__(self, tile_size: int = 32, tileset_path: Optional[str] = None, use_tileset: bool = True):
         """
         Initialize the map renderer.
         
         Args:
             tile_size: Size of each tile in pixels for display (will scale tileset to this size)
-            tileset_path: Path to the tileset image file
+            tileset_path: Path to the tileset image file (None for color-based rendering)
+            use_tileset: Whether to use tileset (False for color-based rendering)
         """
         self.tile_size = tile_size  # Display tile size
         self.tileset = None
         self.tileset_path = tileset_path
+        self.json_path = None  # Path to JSON mappings file
+        self.use_tileset = use_tileset
         self.tileset_tile_size = None  # Native tileset tile size (will be detected)
         self.tiles_per_row = 0  # Will be calculated when tileset is loaded
+        self.transparency_color = None  # RGB color to make transparent (chroma key)
         
-        # Load tileset if available
-        self._load_tileset()
+        # Load tileset if available and enabled
+        if self.use_tileset and self.tileset_path:
+            self._load_tileset()
+        else:
+            self.use_tileset = False
+            print("Using color-based rendering (no tileset)")
         
         # Load terrain to tile mappings from file, or use defaults
-        self.terrain_tile_map = self._load_tile_mappings()
+        if self.use_tileset:
+            self.terrain_tile_map = self._load_tile_mappings()
+        else:
+            self.terrain_tile_map = {}
+    
+    def switch_tileset(self, tileset_info: Optional[Dict]):
+        """
+        Switch to a different tileset or color-based rendering.
+        
+        Args:
+            tileset_info: Dictionary with 'type' ('tileset' or 'color'), 'path' (PNG), and 'json_path' (JSON)
+        """
+        if tileset_info is None or tileset_info.get('type') == 'color':
+            # Switch to color-based rendering
+            self.use_tileset = False
+            self.tileset = None
+            self.tileset_path = None
+            self.json_path = None
+            self.terrain_tile_map = {}
+            print("Switched to color-based rendering")
+        else:
+            # Switch to tileset
+            new_path = tileset_info.get('path')  # PNG path
+            json_path = tileset_info.get('json_path')  # JSON path
+            
+            if new_path and os.path.exists(new_path):
+                if json_path and os.path.exists(json_path):
+                    self.use_tileset = True
+                    self.tileset_path = new_path
+                    self.json_path = json_path
+                    self._load_tileset()
+                    self.terrain_tile_map = self._load_tile_mappings()
+                    print(f"Switched to tileset: {tileset_info.get('name', 'Unknown')}")
+                else:
+                    print(f"Error: Tileset JSON file not found: {json_path}")
+            else:
+                print(f"Error: Tileset PNG file not found: {new_path}")
     
     def _load_tileset(self):
         """Load the tileset image and detect its native tile size."""
         try:
             if os.path.exists(self.tileset_path):
+                # Load with alpha channel preserved
                 self.tileset = pygame.image.load(self.tileset_path).convert_alpha()
                 tileset_width = self.tileset.get_width()
                 tileset_height = self.tileset.get_height()
                 
-                # Try to detect native tile size (common sizes: 8, 16, 32, 64)
-                # Check if width is divisible by common tile sizes
-                possible_sizes = [8, 16, 32, 64]
+                # First, try to infer from filename (most reliable)
+                import re
                 detected_size = None
+                match = re.search(r'(\d+)x\d+', self.tileset_path, re.IGNORECASE)
+                if match:
+                    filename_size = int(match.group(1))
+                    # Verify that the detected size from filename works
+                    if tileset_width % filename_size == 0 and tileset_height % filename_size == 0:
+                        detected_size = filename_size
                 
-                for size in possible_sizes:
-                    if tileset_width % size == 0 and tileset_height % size == 0:
-                        # Check if it looks like a reasonable grid (at least 4 tiles)
-                        if tileset_width // size >= 4:
-                            detected_size = size
-                            break
-                
-                # If we couldn't detect, try to infer from filename or use 16 as default
+                # If filename didn't help, try to detect native tile size (common sizes: 8, 16, 32, 64)
                 if detected_size is None:
-                    # Check filename for size hint (e.g., "16x16_tileset.png")
-                    import re
-                    match = re.search(r'(\d+)x\d+', self.tileset_path, re.IGNORECASE)
-                    if match:
-                        detected_size = int(match.group(1))
-                    else:
-                        detected_size = 16  # Default assumption
+                    possible_sizes = [16, 32, 64, 8]  # Prefer larger sizes first
+                    for size in possible_sizes:
+                        if tileset_width % size == 0 and tileset_height % size == 0:
+                            # Check if it looks like a reasonable grid (at least 4 tiles)
+                            if tileset_width // size >= 4:
+                                detected_size = size
+                                break
+                
+                # If we still couldn't detect, use 16 as default
+                if detected_size is None:
+                    detected_size = 16  # Default assumption
                 
                 self.tileset_tile_size = detected_size
                 self.tiles_per_row = tileset_width // self.tileset_tile_size
@@ -87,12 +134,26 @@ class MapRenderer:
     def _load_tile_mappings(self) -> dict:
         """
         Load terrain to tile mappings from JSON file.
-        Falls back to default mappings if file doesn't exist.
+        Uses json_path if available, otherwise derives from tileset_path.
         
         Returns:
-            Dictionary mapping TerrainType to (tile_x, tile_y) tuples
+            Dictionary mapping TerrainType to list of (tile_x, tile_y) tuples (single or double layer)
         """
-        mappings_file = "tileset_mappings.json"
+        # Use json_path if set (from tileset selection), otherwise derive from PNG path
+        if self.json_path and os.path.exists(self.json_path):
+            mappings_file = self.json_path
+        elif self.tileset_path:
+            # Derive JSON path from PNG path
+            tilesets_dir = "tilesets"
+            png_basename = os.path.splitext(os.path.basename(self.tileset_path))[0]
+            json_filename = png_basename + ".json"
+            mappings_file = os.path.join(tilesets_dir, json_filename)
+            
+            # Fallback to old format/location for backward compatibility
+            if not os.path.exists(mappings_file):
+                mappings_file = "tileset_mappings.json"
+        else:
+            return {}
         
         # Default mappings (fallback)
         default_mappings = {
@@ -116,72 +177,167 @@ class MapRenderer:
                     json_data = json.load(f)
                 
                 mappings = {}
-                for terrain_name, coords in json_data.items():
+                transparency_color = None
+                
+                for terrain_name, layers in json_data.items():
+                    # Check for transparency color metadata
+                    if terrain_name == '_transparency_color':
+                        transparency_color = tuple(layers) if isinstance(layers, list) and len(layers) >= 3 else None
+                        continue
+                    
                     # Find matching TerrainType
                     for terrain_type in TerrainType:
                         if terrain_type.value == terrain_name:
-                            mappings[terrain_type] = tuple(coords)
+                            # Handle both old format (single [x, y]) and new format ([[x, y]] or [[x1, y1], [x2, y2]])
+                            if isinstance(layers, list) and len(layers) > 0:
+                                if isinstance(layers[0], list):
+                                    # New format: list of [x, y] lists
+                                    mappings[terrain_type] = [tuple(layer) for layer in layers]
+                                else:
+                                    # Old format: single [x, y] - convert to new format
+                                    mappings[terrain_type] = [tuple(layers)]
                             break
                 
-                # Merge with defaults for any missing terrain types
-                for terrain_type, default_coords in default_mappings.items():
-                    if terrain_type not in mappings:
-                        mappings[terrain_type] = default_coords
+                # Store transparency color for use in compositing
+                if transparency_color:
+                    self.transparency_color = transparency_color
+                    print(f"  Transparency color: RGB{transparency_color}")
+                else:
+                    self.transparency_color = None
+                
+                # Don't merge defaults - only use what's in the file
+                # If a terrain type is missing, it will use color-based rendering
                 
                 print(f"  Loaded terrain mappings from {mappings_file}")
                 print(f"  Terrain mappings:")
-                for terrain_type, (tile_x, tile_y) in sorted(mappings.items(), key=lambda x: x[0].value):
-                    print(f"    {terrain_type.value}: tile ({tile_x}, {tile_y})")
+                for terrain_type, layers in sorted(mappings.items(), key=lambda x: x[0].value):
+                    if isinstance(layers, list) and len(layers) > 0:
+                        if len(layers) == 1:
+                            print(f"    {terrain_type.value}: tile {layers[0]}")
+                        else:
+                            print(f"    {terrain_type.value}: layer 1 {layers[0]}, layer 2 {layers[1]}")
+                    else:
+                        print(f"    {terrain_type.value}: tile {layers}")
                 
                 return mappings
             except Exception as e:
                 print(f"  Error loading mappings from {mappings_file}: {e}")
-                print(f"  Using default mappings")
+                print(f"  Terrain types will use color-based rendering")
+                return {}
         else:
             print(f"  Mappings file not found: {mappings_file}")
-            print(f"  Using default mappings")
-            print(f"  Run 'python select_tileset_tiles.py' to create mappings file")
-        
-        # Return defaults
-        print(f"  Terrain mappings (defaults):")
-        for terrain_type, (tile_x, tile_y) in sorted(default_mappings.items(), key=lambda x: x[0].value):
-            print(f"    {terrain_type.value}: tile ({tile_x}, {tile_y})")
-        
-        return default_mappings
+            print(f"  Terrain types will use color-based rendering")
+            return {}
     
     def _get_tile_surface(self, terrain_type: TerrainType) -> Optional[pygame.Surface]:
         """
         Get the tile surface for a terrain type from the tileset.
+        Supports single layer or two-layer tiles (base + overlay).
         Extracts at native tileset size and scales to display size.
         
         Args:
             terrain_type: The terrain type
             
         Returns:
-            pygame.Surface of the tile scaled to display size, or None if tileset not available
+            pygame.Surface of the tile scaled to display size, or None if tileset not available (color-based rendering)
         """
+        # If not using tileset, return None to use colored rectangles
+        if not self.use_tileset:
+            return None
+        
         if not self.tileset or self.tileset_tile_size is None:
             return None
         
         if terrain_type not in self.terrain_tile_map:
             return None
         
-        tile_x, tile_y = self.terrain_tile_map[terrain_type]
+        layers = self.terrain_tile_map[terrain_type]
         
-        # Calculate source rect in tileset (using native tileset tile size)
-        source_x = tile_x * self.tileset_tile_size
-        source_y = tile_y * self.tileset_tile_size
-        source_rect = pygame.Rect(source_x, source_y, self.tileset_tile_size, self.tileset_tile_size)
+        # Handle both old format (single tuple) and new format (list of layers)
+        if isinstance(layers, tuple):
+            # Old format: single (x, y) tuple
+            layers = [layers]
+        elif not isinstance(layers, list):
+            return None
         
-        # Extract tile from tileset at native size
-        native_tile = pygame.Surface((self.tileset_tile_size, self.tileset_tile_size), pygame.SRCALPHA)
-        native_tile.blit(self.tileset, (0, 0), source_rect)
+        # Create composite surface (start with transparent background)
+        composite = pygame.Surface((self.tileset_tile_size, self.tileset_tile_size), pygame.SRCALPHA)
+        
+        # Draw each layer (first layer is base, subsequent layers are overlays)
+        for layer_index, layer in enumerate(layers):
+            if isinstance(layer, (list, tuple)) and len(layer) >= 2:
+                tile_x, tile_y = layer[0], layer[1]
+                
+                # Calculate source rect in tileset (using native tileset tile size)
+                source_x = tile_x * self.tileset_tile_size
+                source_y = tile_y * self.tileset_tile_size
+                
+                # Bounds check
+                if source_x + self.tileset_tile_size > self.tileset.get_width() or \
+                   source_y + self.tileset_tile_size > self.tileset.get_height():
+                    continue  # Skip invalid tile coordinates
+                
+                source_rect = pygame.Rect(source_x, source_y, self.tileset_tile_size, self.tileset_tile_size)
+                
+                # Extract tile from tileset at native size
+                native_tile = pygame.Surface((self.tileset_tile_size, self.tileset_tile_size), pygame.SRCALPHA)
+                native_tile.blit(self.tileset, (0, 0), source_rect)
+                
+                # Composite onto base
+                if layer_index == 0:
+                    # Base layer: draw directly (fully opaque)
+                    composite.blit(native_tile, (0, 0))
+                else:
+                    # Overlay layer: composite with transparency color support
+                    overlay_copy = native_tile.copy()
+                    
+                    # If transparency color is set, make matching pixels transparent
+                    if self.transparency_color:
+                        # Convert surface to array for pixel manipulation
+                        try:
+                            # Try using surfarray for faster pixel manipulation
+                            import pygame.surfarray as surfarray
+                            # Get pixel array
+                            pixel_array = surfarray.pixels3d(overlay_copy)
+                            alpha_array = surfarray.pixels_alpha(overlay_copy)
+                            
+                            # Find pixels matching transparency color (with small tolerance)
+                            tolerance = 5  # Allow slight color variation
+                            r, g, b = self.transparency_color
+                            
+                            # Create mask for matching pixels
+                            mask = (
+                                (pixel_array[:, :, 0] >= r - tolerance) & (pixel_array[:, :, 0] <= r + tolerance) &
+                                (pixel_array[:, :, 1] >= g - tolerance) & (pixel_array[:, :, 1] <= g + tolerance) &
+                                (pixel_array[:, :, 2] >= b - tolerance) & (pixel_array[:, :, 2] <= b + tolerance)
+                            )
+                            
+                            # Set alpha to 0 for matching pixels
+                            alpha_array[mask] = 0
+                            
+                            # Clean up
+                            del pixel_array
+                            del alpha_array
+                        except Exception:
+                            # Fallback: manual pixel-by-pixel approach
+                            for y in range(overlay_copy.get_height()):
+                                for x in range(overlay_copy.get_width()):
+                                    pixel = overlay_copy.get_at((x, y))
+                                    r, g, b, a = pixel
+                                    # Check if pixel matches transparency color (with tolerance)
+                                    if (abs(r - self.transparency_color[0]) <= 5 and
+                                        abs(g - self.transparency_color[1]) <= 5 and
+                                        abs(b - self.transparency_color[2]) <= 5):
+                                        overlay_copy.set_at((x, y), (r, g, b, 0))  # Make transparent
+                    
+                    # Composite overlay onto base (alpha blending)
+                    composite.blit(overlay_copy, (0, 0))
         
         # Scale to display size if needed
         if self.tileset_tile_size != self.tile_size:
-            tile_surface = pygame.transform.scale(native_tile, (self.tile_size, self.tile_size))
+            tile_surface = pygame.transform.scale(composite, (self.tile_size, self.tile_size))
         else:
-            tile_surface = native_tile
+            tile_surface = composite
         
         return tile_surface
     
@@ -245,7 +401,7 @@ class MapRenderer:
                 
                 if tile_surface:
                     # Use tileset tile
-                    # Fog of war logic:
+                # Fog of war logic:
                     if is_visible:
                         # Visible tiles: show normal tile
                         surface.blit(tile_surface, (screen_x, screen_y))
@@ -261,24 +417,24 @@ class MapRenderer:
                     # Fall back to colored rectangles
                     color = terrain.get_color()
                     
-                    # Fog of war logic:
-                    # 1. Visible tiles: normal color (not darkened)
-                    # 2. Unexplored tiles: completely black
-                    # 3. Explored but not visible tiles: darkened
-                    if is_visible:
-                        # Visible tiles: always show normal color (never darkened)
-                        pygame.draw.rect(surface, color, rect)
-                    elif not is_explored:
-                        # Unexplored: completely black
-                        pygame.draw.rect(surface, (0, 0, 0), rect)
-                    else:
-                        # Explored but not visible: darken the color (fog of war)
-                        # Darken by 70% (keep 30% of original brightness)
-                        fog_color = tuple(max(0, int(c * 0.3)) for c in color)
-                        pygame.draw.rect(surface, fog_color, rect)
+                    # Fog of war logic for color-based rendering:
+                # 1. Visible tiles: normal color (not darkened)
+                # 2. Unexplored tiles: completely black
+                # 3. Explored but not visible tiles: darkened
+                if is_visible:
+                    # Visible tiles: always show normal color (never darkened)
+                    pygame.draw.rect(surface, color, rect)
+                elif not is_explored:
+                    # Unexplored: completely black
+                    pygame.draw.rect(surface, (0, 0, 0), rect)
+                else:
+                    # Explored but not visible: darken the color (fog of war)
+                    # Darken by 70% (keep 30% of original brightness)
+                    fog_color = tuple(max(0, int(c * 0.3)) for c in color)
+                    pygame.draw.rect(surface, fog_color, rect)
                 
-                # Draw border for better visibility (only if explored and using colored rectangles)
-                if is_explored and not tile_surface:
+                    # Draw border for better visibility (only if explored and using colored rectangles)
+                if is_explored:
                     border_color = (0, 0, 0) if is_visible else (20, 20, 20)
                     pygame.draw.rect(surface, border_color, rect, 1)
         

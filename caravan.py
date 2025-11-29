@@ -50,7 +50,7 @@ class Caravan:
         # Time tracking
         self.arrived_at_town_time = None  # Will be set when arriving at town
         self.arrived_at_village_time = None  # Will be set when arriving at village
-        
+    
         # Movement tracking for slow terrain (hills, forests)
         self.pending_move_count = 0  # Count of moves needed for current tile
         self.pending_direction = None  # Direction we're trying to move

@@ -38,7 +38,7 @@ class Settlement:
         self.vassal_towns = []  # For cities: list of towns that are vassals
         self.supplies_resource = supplies_resource  # For villages: resource they supply
         self.resource_villages = {}  # For towns: dict mapping resource names to villages
-        
+    
         # Economy tracking
         # Resources (only for towns)
         if settlement_type == SettlementType.TOWN:

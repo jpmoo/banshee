@@ -15,6 +15,7 @@ def save_game(map_filepath: str, player_x: int, player_y: int,
               calendar: CelticCalendar, command_messages: List[str],
               explored_tiles: set, visible_tiles: set,
               settlements: Optional[List] = None,
+              tileset_info: Optional[Dict] = None,
               directory: str = "saves") -> Optional[str]:
     """
     Save the current game state.
@@ -108,6 +109,34 @@ def save_game(map_filepath: str, player_x: int, player_y: int,
                     else:
                         nearest_settlement_info = f"the town of {nearest.name}" if nearest.name else "a town"
         
+        # Convert tileset paths to relative if they're absolute
+        saved_tileset_info = None
+        if tileset_info:
+            saved_tileset_info = tileset_info.copy()
+            game_dir = os.getcwd()
+            
+            # Convert PNG path to relative
+            if 'path' in saved_tileset_info and saved_tileset_info['path']:
+                tileset_path = saved_tileset_info['path']
+                if os.path.isabs(tileset_path):
+                    try:
+                        # Try to make it relative
+                        saved_tileset_info['path'] = os.path.relpath(tileset_path, game_dir)
+                    except ValueError:
+                        # If that fails (different drives on Windows), keep original
+                        print(f"Warning: Could not convert tileset path to relative: {tileset_path}")
+            
+            # Convert JSON path to relative
+            if 'json_path' in saved_tileset_info and saved_tileset_info['json_path']:
+                json_path = saved_tileset_info['json_path']
+                if os.path.isabs(json_path):
+                    try:
+                        # Try to make it relative
+                        saved_tileset_info['json_path'] = os.path.relpath(json_path, game_dir)
+                    except ValueError:
+                        # If that fails (different drives on Windows), keep original
+                        print(f"Warning: Could not convert JSON path to relative: {json_path}")
+        
         # Prepare save data
         save_data = {
             'map_filepath': relative_map_path,  # Store relative path
@@ -123,6 +152,7 @@ def save_game(map_filepath: str, player_x: int, player_y: int,
             'explored_tiles': list(explored_tiles),  # Convert set to list for pickle
             'visible_tiles': list(visible_tiles),  # Convert set to list for pickle
             'settlement_economy': settlement_economy,  # Save economy state
+            'tileset_info': saved_tileset_info,  # Save current tileset info (with relative path)
             'save_timestamp': datetime.now().isoformat(),
         }
         
@@ -165,6 +195,25 @@ def load_game(filepath: str) -> Optional[Dict]:
                 game_dir = os.getcwd()
                 save_data['map_filepath'] = os.path.join(game_dir, map_path)
             # If it's already absolute, keep it as is (for backward compatibility)
+        
+        # Convert tileset paths to absolute if they're relative (for loading)
+        if 'tileset_info' in save_data and save_data['tileset_info']:
+            tileset_info = save_data['tileset_info']
+            game_dir = os.getcwd()
+            
+            # Convert PNG path to absolute
+            if 'path' in tileset_info and tileset_info['path']:
+                tileset_path = tileset_info['path']
+                if not os.path.isabs(tileset_path):
+                    # It's relative, make it absolute based on current working directory
+                    tileset_info['path'] = os.path.join(game_dir, tileset_path)
+            
+            # Convert JSON path to absolute
+            if 'json_path' in tileset_info and tileset_info['json_path']:
+                json_path = tileset_info['json_path']
+                if not os.path.isabs(json_path):
+                    # It's relative, make it absolute based on current working directory
+                    tileset_info['json_path'] = os.path.join(game_dir, json_path)
         
         # Convert lists back to sets
         if 'explored_tiles' in save_data:

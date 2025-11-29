@@ -4,14 +4,14 @@ Map save/load functionality for persisting generated maps to disk.
 import pickle
 import os
 import gzip
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from terrain import Terrain
 from settlements import Settlement, SettlementType
 
 
 def save_map(map_data: List[List[Terrain]], width: int, height: int, 
              filepath: str, map_name: str, settlements: Optional[List[Settlement]] = None,
-             seed: Optional[int] = None) -> bool:
+             seed: Optional[int] = None, worldbuilding_data: Optional[Dict] = None) -> bool:
     """
     Save a map to disk.
     
@@ -38,7 +38,8 @@ def save_map(map_data: List[List[Terrain]], width: int, height: int,
             'map_data': map_data,
             'map_name': map_name,
             'settlements': settlements if settlements is not None else [],
-            'seed': seed
+            'seed': seed,
+            'worldbuilding_data': worldbuilding_data  # Worldbuilding data from OpenAI
         }
         
         # Debug: Print settlement info before saving
@@ -62,7 +63,7 @@ def save_map(map_data: List[List[Terrain]], width: int, height: int,
         return False
 
 
-def load_map(filepath: str) -> Optional[Tuple[List[List[Terrain]], int, int, str, List[Settlement], Optional[int]]]:
+def load_map(filepath: str) -> Optional[Tuple[List[List[Terrain]], int, int, str, List[Settlement], Optional[int], Optional[Dict]]]:
     """
     Load a map from disk.
     
@@ -70,7 +71,7 @@ def load_map(filepath: str) -> Optional[Tuple[List[List[Terrain]], int, int, str
         filepath: Path to the map file
         
     Returns:
-        Tuple of (map_data, width, height, map_name, settlements, seed) if successful, None otherwise
+        Tuple of (map_data, width, height, map_name, settlements, seed, worldbuilding_data) if successful, None otherwise
     """
     try:
         if not os.path.exists(filepath):
@@ -90,10 +91,21 @@ def load_map(filepath: str) -> Optional[Tuple[List[List[Terrain]], int, int, str
         map_data = save_data['map_data']
         width = save_data['width']
         height = save_data['height']
-        # Handle old save files that don't have map_name, settlements, or seed
+        # Handle old save files that don't have map_name, settlements, seed, or worldbuilding_data
         map_name = save_data.get('map_name', os.path.basename(filepath).replace('.banshee', ''))
         settlements = save_data.get('settlements', [])
         seed = save_data.get('seed', None)
+        worldbuilding_data = save_data.get('worldbuilding_data', None)
+        
+        # Debug: Print worldbuilding data info
+        if worldbuilding_data:
+            print(f"Debug load: Worldbuilding data found in map file")
+            print(f"Debug load: Worldbuilding data has {len(worldbuilding_data)} top-level keys")
+            if isinstance(worldbuilding_data, dict):
+                for key in list(worldbuilding_data.keys())[:5]:  # Show first 5 keys
+                    print(f"Debug load:   - {key}")
+        else:
+            print("Debug load: No worldbuilding data in map file")
         
         # Debug: Print settlement info after loading
         if settlements:
@@ -131,7 +143,7 @@ def load_map(filepath: str) -> Optional[Tuple[List[List[Terrain]], int, int, str
         else:
             print("Debug load: WARNING - No settlements loaded from file!")
         
-        return (map_data, width, height, map_name, settlements, seed)
+        return (map_data, width, height, map_name, settlements, seed, worldbuilding_data)
     except Exception as e:
         print(f"Error loading map: {e}")
         return None
