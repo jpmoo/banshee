@@ -429,78 +429,69 @@ def main():
                                 # Get mouse position from event
                                 mouse_x, mouse_y = event.pos
                                 
-                                        if map_view_mode:
-                                            # Handle clicks in overview map - zoom to clicked location
-                                            # Convert screen coordinates to map tile coordinates
-                                            clicked_tile_x = (mouse_x // overview_tile_size) + overview_camera_x
-                                            clicked_tile_y = (mouse_y // overview_tile_size) + overview_camera_y
-                                    
-                                            # Clamp to map bounds
-                                            clicked_tile_x = max(0, min(map_width - 1, clicked_tile_x))
-                                            clicked_tile_y = max(0, min(map_height - 1, clicked_tile_y))
-                                    
-                                            # Center the normal camera on the clicked location
-                                            viewport_width = SCREEN_WIDTH // TILE_SIZE
-                                            viewport_height = SCREEN_HEIGHT // TILE_SIZE
-                                            camera_x = clicked_tile_x - viewport_width // 2
-                                            camera_y = clicked_tile_y - viewport_height // 2
-                                    
-                                            # Clamp camera to map bounds
-                                            camera_x = max(0, min(map_width - viewport_width, camera_x))
-                                            camera_y = max(0, min(map_height - viewport_height, camera_y))
-                                    
-                                            # Exit overview mode
-                                            map_view_mode = False
+                                if map_view_mode:
+                                    # Handle clicks in overview map - zoom to clicked location
+                                    # Convert screen coordinates to map tile coordinates
+                                    clicked_tile_x = (mouse_x // overview_tile_size) + overview_camera_x
+                                    clicked_tile_y = (mouse_y // overview_tile_size) + overview_camera_y
+                            
+                                    # Clamp to map bounds
+                                    clicked_tile_x = max(0, min(map_width - 1, clicked_tile_x))
+                                    clicked_tile_y = max(0, min(map_height - 1, clicked_tile_y))
+                            
+                                    # Center the normal camera on the clicked location
+                                    viewport_width = SCREEN_WIDTH // TILE_SIZE
+                                    viewport_height = SCREEN_HEIGHT // TILE_SIZE
+                                    camera_x = clicked_tile_x - viewport_width // 2
+                                    camera_y = clicked_tile_y - viewport_height // 2
+                            
+                                    # Clamp camera to map bounds
+                                    camera_x = max(0, min(map_width - viewport_width, camera_x))
+                                    camera_y = max(0, min(map_height - viewport_height, camera_y))
+                            
+                                    # Exit overview mode
+                                    map_view_mode = False
 
-                                        else:
+                                else:
+                                    # Handle mouse clicks on settlements (only in normal view)
+                                    # Get mouse position from event (already set above)
+                                    # Convert screen coordinates to tile coordinates
+                                    tile_x = mouse_x // TILE_SIZE + camera_x
+                                    tile_y = mouse_y // TILE_SIZE + camera_y
 
-                                            # Handle mouse clicks on settlements (only in normal view)
-                                            # Get mouse position from event (already set above)
-                                            # Convert screen coordinates to tile coordinates
-                                            tile_x = mouse_x // TILE_SIZE + camera_x
-                                            tile_y = mouse_y // TILE_SIZE + camera_y
+                                    # Check if a settlement was clicked
+                                    clicked_settlement = None
 
-                                    
-                                            # Check if a settlement was clicked
+                                    for settlement in settlements:
+                                        sx, sy = settlement.get_position()
 
-                                            clicked_settlement = None
+                                        # Check if click is within the settlement's tile
+                                        if sx == tile_x and sy == tile_y:
+                                            clicked_settlement = settlement
+                                            break
 
-                                            for settlement in settlements:
+                                    if clicked_settlement:
+                                        # Set selection for arrows to be drawn
+                                        if clicked_settlement.settlement_type == SettlementType.VILLAGE:
+                                            selected_village = clicked_settlement
+                                            selected_town = None
+                                            selected_city = None
+                                        elif clicked_settlement.settlement_type == SettlementType.TOWN:
+                                            selected_town = clicked_settlement
+                                            selected_village = None
+                                            selected_city = None
+                                        elif clicked_settlement.settlement_type == SettlementType.CITY:
+                                            selected_city = clicked_settlement
+                                            selected_village = None
+                                            selected_town = None
+                                        
+                                        # Show settlement dialog with worldbuilding data (if available from saved map)
+                                        from settlement_dialog import show_settlement_dialog
+                                        show_settlement_dialog(screen, clock, clicked_settlement, 
+                                                              settlements, worldbuilding_data)
 
-                                                sx, sy = settlement.get_position()
-
-                                                # Check if click is within the settlement's tile
-
-                                                if sx == tile_x and sy == tile_y:
-
-                                                    clicked_settlement = settlement
-
-                                                    break
-
-                                    
-                                            if clicked_settlement:
-                                                # Set selection for arrows to be drawn
-                                                if clicked_settlement.settlement_type == SettlementType.VILLAGE:
-                                                        selected_village = clicked_settlement
-                                                    selected_town = None
-                                                    selected_city = None
-                                                elif clicked_settlement.settlement_type == SettlementType.TOWN:
-                                                        selected_town = clicked_settlement
-                                                    selected_village = None
-                                                    selected_city = None
-                                                elif clicked_settlement.settlement_type == SettlementType.CITY:
-                                                        selected_city = clicked_settlement
-                                                    selected_village = None
-                                                    selected_town = None
-                                                
-                                                # Show settlement dialog with worldbuilding data (if available from saved map)
-                                                from settlement_dialog import show_settlement_dialog
-                                                show_settlement_dialog(screen, clock, clicked_settlement, 
-                                                                      settlements, worldbuilding_data)
-
-                                            else:
-
-                                                # Clicked on empty space - deselect everything
+                                    else:
+                                        # Clicked on empty space - deselect everything
 
                                                 selected_village = None
 

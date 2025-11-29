@@ -372,6 +372,7 @@ class MapGenerator:
         # Update town names for independent towns (not vassals to any city)
         for settlement in settlements:
             # Names are now assigned from worldbuilding data
+            pass
         
         # Print final settlement counts
         town_count = sum(1 for s in settlements if s.settlement_type == SettlementType.TOWN)

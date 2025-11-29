@@ -59,7 +59,10 @@ A procedural, Celtic-inspired RPG game built with Python and Pygame. Explore pro
 - **Celtic Calendar**: Time-based system with months, days, and hours
 - **Turn-Based Movement**: Movement costs vary by terrain type
 - **Save/Load System**: Save game progress with settlement economy state
-- **Map Management**: Save and load multiple maps
+- **Map Management**: 
+  - Save and load multiple maps
+  - Delete maps with confirmation dialog
+  - Automatic deletion of associated save files when deleting a map (with warning)
 
 ### User Interface
 - **Status Panel**: Display settlement information and resources

@@ -5,6 +5,7 @@ import pygame
 import os
 from typing import List, Optional, Tuple
 from map_saver import get_saved_maps
+from save_game import get_saved_games
 from datetime import datetime
 
 
@@ -113,6 +114,36 @@ class MapListScreen:
         
         return None
     
+    def _get_saves_using_map(self, map_filepath: str) -> List[str]:
+        """Get list of save file paths that use the specified map file."""
+        saves_using_map = []
+        try:
+            saved_games = get_saved_games()
+            game_dir = os.getcwd()
+            
+            # Normalize the map filepath for comparison
+            if not os.path.isabs(map_filepath):
+                map_filepath_abs = os.path.join(game_dir, map_filepath)
+            else:
+                map_filepath_abs = map_filepath
+            
+            for save_filepath, save_data in saved_games:
+                if 'map_filepath' in save_data:
+                    save_map_path = save_data['map_filepath']
+                    # Convert to absolute for comparison
+                    if not os.path.isabs(save_map_path):
+                        save_map_path_abs = os.path.join(game_dir, save_map_path)
+                    else:
+                        save_map_path_abs = save_map_path
+                    
+                    # Compare normalized paths
+                    if os.path.normpath(save_map_path_abs) == os.path.normpath(map_filepath_abs):
+                        saves_using_map.append(save_filepath)
+        except Exception as e:
+            print(f"Error checking saves for map: {e}")
+        
+        return saves_using_map
+    
     def _draw_delete_confirmation_dialog(self):
         """Draw the delete confirmation dialog."""
         if self.pending_delete_index is None or self.pending_delete_index >= len(self.saved_maps):
@@ -123,9 +154,13 @@ class MapListScreen:
         
         filepath, map_name, seed = self.saved_maps[self.pending_delete_index]
         
-        # Dialog dimensions
-        dialog_width = 500
-        dialog_height = 200
+        # Check for saves using this map
+        saves_using_map = self._get_saves_using_map(filepath)
+        num_saves = len(saves_using_map)
+        
+        # Dialog dimensions - make taller if there are saves to warn about
+        dialog_width = 600
+        dialog_height = 250 if num_saves > 0 else 200
         dialog_x = (screen_width - dialog_width) // 2
         dialog_y = (screen_height - dialog_height) // 2
         
@@ -138,6 +173,7 @@ class MapListScreen:
         # Dialog text
         font = pygame.font.Font(None, 28)
         title_font = pygame.font.Font(None, 32)
+        warning_font = pygame.font.Font(None, 24)
         
         title_text = title_font.render("Delete Map?", True, (255, 255, 255))
         title_rect = title_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 40))
@@ -146,6 +182,15 @@ class MapListScreen:
         confirm_text = font.render(f"Delete map '{map_name}'?", True, (200, 200, 200))
         confirm_rect = confirm_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 80))
         self.screen.blit(confirm_text, confirm_rect)
+        
+        # Warning about saves
+        if num_saves > 0:
+            warning_text = warning_font.render(
+                f"WARNING: This will also delete {num_saves} save file(s) using this map!",
+                True, (255, 150, 150)
+            )
+            warning_rect = warning_text.get_rect(center=(dialog_x + dialog_width // 2, dialog_y + 120))
+            self.screen.blit(warning_text, warning_rect)
         
         # Yes button
         yes_text = font.render("Yes (Y)", True, (255, 255, 255))
@@ -172,21 +217,34 @@ class MapListScreen:
         self.screen.blit(no_text, no_text_rect)
     
     def _delete_map_file(self, index: int):
-        """Delete a map file."""
+        """Delete a map file and any associated save files."""
         if index < 0 or index >= len(self.saved_maps):
             return
         
         filepath, map_name, seed = self.saved_maps[index]
         
+        # Get saves using this map
+        saves_using_map = self._get_saves_using_map(filepath)
+        
         try:
+            # Delete associated save files first
+            for save_filepath in saves_using_map:
+                if os.path.exists(save_filepath):
+                    os.remove(save_filepath)
+                    print(f"Deleted save file: {save_filepath}")
+            
+            # Delete the map file
             if os.path.exists(filepath):
                 os.remove(filepath)
                 print(f"Deleted map file: {filepath}")
-                # Reload saved maps
-                self._load_saved_maps()
-                # Adjust selected index if needed
-                if self.selected_map_index >= len(self.saved_maps):
-                    self.selected_map_index = max(0, len(self.saved_maps) - 1)
+                if saves_using_map:
+                    print(f"Also deleted {len(saves_using_map)} associated save file(s)")
+            
+            # Reload saved maps
+            self._load_saved_maps()
+            # Adjust selected index if needed
+            if self.selected_map_index >= len(self.saved_maps):
+                self.selected_map_index = max(0, len(self.saved_maps) - 1)
         except Exception as e:
             print(f"Error deleting map file: {e}")
     

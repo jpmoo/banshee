@@ -883,12 +883,12 @@ class PlayScreen:
         for x, y in path:
             if not (0 <= x < self.map_width and 0 <= y < self.map_height):
                 return None  # Out of bounds
-                terrain = self.map_data[y][x]
+            terrain = self.map_data[y][x]
             # Explicitly block water, rivers, and mountains
             if terrain.terrain_type in [TerrainType.SHALLOW_WATER, TerrainType.DEEP_WATER, 
                                        TerrainType.RIVER, TerrainType.MOUNTAIN]:
                 return None  # Invalid path
-                if not terrain.can_move_through():
+            if not terrain.can_move_through():
                 return None  # Impassable terrain
             validated_path.append((x, y))
         
@@ -1305,13 +1305,13 @@ class PlayScreen:
                         path_to_village = self._validate_path(path_to_village)
                         
                         if path_to_town and path_to_village:
-                        caravan.set_path_to_town(path_to_town)
-                        caravan.set_path_to_village(path_to_village)
-                        
-                        # Start journey to town
-                        caravan.start_journey_to_town()
-                        
-                        self.caravans.append(caravan)
+                            caravan.set_path_to_town(path_to_town)
+                            caravan.set_path_to_village(path_to_village)
+                            
+                            # Start journey to town
+                            caravan.start_journey_to_town()
+                            
+                            self.caravans.append(caravan)
                         else:
                             continue  # Invalid path, skip this caravan
                     # Note: If path is not clear, caravan simply doesn't spawn (silent failure)
@@ -1327,13 +1327,13 @@ class PlayScreen:
                 current_tile_y = int(caravan.y)
                 
                 # Check if we have a path and haven't reached the end
-                        if caravan.path_index_to_town >= len(caravan.path_to_town):
-                            # Arrived at town
-                            town_x, town_y = caravan.town.get_position()
-                            caravan.x = float(town_x)
-                            caravan.y = float(town_y)
-                            caravan.state = CaravanState.AT_TOWN
-                            caravan.arrived_at_town_time = (self.calendar.day, self.calendar.hour)
+                if caravan.path_index_to_town >= len(caravan.path_to_town):
+                    # Arrived at town
+                    town_x, town_y = caravan.town.get_position()
+                    caravan.x = float(town_x)
+                    caravan.y = float(town_y)
+                    caravan.state = CaravanState.AT_TOWN
+                    caravan.arrived_at_town_time = (self.calendar.day, self.calendar.hour)
                     
                     # Add resources to town immediately
                     if caravan.village.supplies_resource:
@@ -1389,15 +1389,15 @@ class PlayScreen:
                                 caravan.path_index_to_town += 1
                                 caravan.pending_direction = None
                                 caravan.pending_move_count = 0
-                    else:
+                        else:
                             # Different direction - reset and start new pending
                             caravan.pending_direction = (target_x, target_y)
                             caravan.pending_move_count = 1
-                        else:
+                    else:
                         # Fast terrain - move immediately
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_town += 1
+                        caravan.x = float(target_x)
+                        caravan.y = float(target_y)
+                        caravan.path_index_to_town += 1
                         caravan.pending_direction = None
                         caravan.pending_move_count = 0
             
@@ -1418,14 +1418,14 @@ class PlayScreen:
                 current_tile_y = int(caravan.y)
                 
                 # Check if we have a path and haven't reached the end
-                        if caravan.path_index_to_village >= len(caravan.path_to_village):
+                if caravan.path_index_to_village >= len(caravan.path_to_village):
                     # Arrived at village
-                            village_x, village_y = caravan.village.get_position()
-                            caravan.x = float(village_x)
-                            caravan.y = float(village_y)
-                            caravan.state = CaravanState.AT_VILLAGE
+                    village_x, village_y = caravan.village.get_position()
+                    caravan.x = float(village_x)
+                    caravan.y = float(village_y)
+                    caravan.state = CaravanState.AT_VILLAGE
                     # Remove caravan when it returns
-                            self.caravans.remove(caravan)
+                    self.caravans.remove(caravan)
                     continue
                 
                 # Get next waypoint
@@ -1464,15 +1464,15 @@ class PlayScreen:
                                 caravan.path_index_to_village += 1
                                 caravan.pending_direction = None
                                 caravan.pending_move_count = 0
-                    else:
+                        else:
                             # Different direction - reset and start new pending
                             caravan.pending_direction = (target_x, target_y)
                             caravan.pending_move_count = 1
-                        else:
+                    else:
                         # Fast terrain - move immediately
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_village += 1
+                        caravan.x = float(target_x)
+                        caravan.y = float(target_y)
+                        caravan.path_index_to_village += 1
                         caravan.pending_direction = None
                         caravan.pending_move_count = 0
     
@@ -1745,12 +1745,12 @@ class PlayScreen:
         
         # Messages (scrollable, show most recent) - appear after settlement info or at y_offset=100 if no settlement
         if not self.current_settlement:
-        y_offset = 100
-        for message in self.status_messages[-12:]:  # Show last 12 messages (less space due to date and terrain)
-            text_surface = font.render(message, True, (200, 200, 200))
-            if y_offset + text_surface.get_height() < self.status_height - 10:
-                self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
-                y_offset += 25
+            y_offset = 100
+            for message in self.status_messages[-12:]:  # Show last 12 messages (less space due to date and terrain)
+                text_surface = font.render(message, True, (200, 200, 200))
+                if y_offset + text_surface.get_height() < self.status_height - 10:
+                    self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
+                    y_offset += 25
         
         # Draw command/results area (bottom 1x3) - terminal style
         command_rect = pygame.Rect(0, self.map_view_height, self.command_width, self.command_height)

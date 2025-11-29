@@ -42,7 +42,7 @@ def make_city(tones_pool: list, flavors_pool: list, titles_pool: list,
     return {
         "description": f"A great city {unique_choice(tones_pool, 'city_tones')}. {unique_choice(flavors_pool, 'city_flavors')}",
         "leader": {
-            "name": f"{unique_choice(titles_pool, 'city_titles')} {unique_choice(names_pool, 'city_names')}",
+            "name": f"{random.choice(titles_pool)} {unique_choice(names_pool, 'city_names')}",
             "biography": unique_choice(bios_pool, 'city_bios')
         }
     }
@@ -54,7 +54,7 @@ def make_town(tones_pool: list, flavors_pool: list, titles_pool: list,
     return {
         "description": f"A town {unique_choice(tones_pool, 'town_tones')}. {unique_choice(flavors_pool, 'town_flavors')}",
         "leader": {
-            "name": f"{unique_choice(titles_pool, 'town_titles')} {unique_choice(names_pool, 'leader_name')}",
+            "name": f"{random.choice(titles_pool)} {unique_choice(names_pool, 'leader_name')}",
             "biography": unique_choice(bios_pool, 'town_bios')
         }
     }
@@ -68,7 +68,7 @@ def make_village(terrain: str, resource: str, templates_pool: list,
         "name": unique_choice(village_names_pool, 'village_names'),
         "description": f"{unique_choice(templates_pool, 'village_templates')} {unique_choice(flavor_pool, 'village_flavor')}",
         "leader": {
-            "name": f"{unique_choice(titles_pool, 'village_titles')} {unique_choice(leader_names_pool, 'leader_name')}",
+            "name": f"{random.choice(titles_pool)} {unique_choice(leader_names_pool, 'leader_name')}",
             "biography": unique_choice(bios_pool, 'village_bios')
         },
         "terrain": terrain,
@@ -207,7 +207,7 @@ def generate_worldbuilding_data(settlements: List[Settlement], seed: int = None,
         free_town_data = {
             "description": "A free city owing allegiance to none, ruled by charisma, coin, and stubborn will.",
             "leader": {
-                "name": f"{unique_choice(city_titles_pool, 'city_titles')} {unique_choice(city_names_pool, 'city_names')}",
+                "name": f"{random.choice(city_titles_pool)} {unique_choice(city_names_pool, 'city_names')}",
                 "biography": unique_choice(city_bios_pool, 'city_bios')
             }
         }
