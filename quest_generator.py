@@ -8,6 +8,7 @@ from typing import Optional, Tuple, List, Dict
 from terrain import Terrain, TerrainType
 from settlements import Settlement, SettlementType
 from data_quest_locations import quest_location_descriptions
+from data_fetch_quest_items import VILLAGE_FETCH_QUEST_ITEMS, TOWN_FETCH_QUEST_ITEMS, CITY_FETCH_QUEST_ITEMS
 
 
 def generate_quest(settlement: Settlement, map_data: List[List[Terrain]], 
@@ -72,17 +73,18 @@ def generate_quest(settlement: Settlement, map_data: List[List[Terrain]],
                      if map_data[y][x].can_move_through()]
         random.shuffle(all_tiles)
         
-        # Check up to 200 random tiles
-        for x, y in all_tiles[:200]:
+        # Check many more tiles - check all if needed
+        tiles_to_check = min(len(all_tiles), 1000)  # Check up to 1000 tiles
+        for x, y in all_tiles[:tiles_to_check]:
             # Quick straight-line distance estimate first
             straight_distance_days = estimate_straight_line_distance(
                 settlement.x, settlement.y, x, y, map_data
             ) / 24.0
             
-            # Quick filter on straight-line distance
+            # Quick filter on straight-line distance (be more strict)
             if straight_distance_days < min_days * 0.8:
                 continue
-            if max_days is not None and straight_distance_days > max_days * 1.5:
+            if max_days is not None and straight_distance_days > max_days * 1.1:  # Tighter margin
                 continue
             
             # Full path distance calculation
@@ -138,21 +140,108 @@ def generate_quest(settlement: Settlement, map_data: List[List[Terrain]],
                 location_terrain_type = "grassland"
             break
     
-    # If STILL no location found (should be extremely rare), use settlement position + offset
+    # If STILL no location found, expand search with relaxed constraints
     if quest_x is None or quest_y is None:
-        # Place quest at a fixed offset from settlement (fallback)
-        offset_x = min(50, map_width // 10)
-        offset_y = min(50, map_height // 10)
-        quest_x = min(map_width - 1, max(0, settlement.x + offset_x))
-        quest_y = min(map_height - 1, max(0, settlement.y + offset_y))
-        location_terrain_type = "grassland"
+        # Try with slightly relaxed constraints (10% more lenient)
+        relaxed_min_days = min_days * 0.9
+        relaxed_max_days = max_days * 1.1 if max_days is not None else None
+        
+        # Check all passable tiles if needed
+        all_tiles = [(x, y) for y in range(map_height) for x in range(map_width) 
+                     if map_data[y][x].can_move_through()]
+        random.shuffle(all_tiles)
+        
+        for x, y in all_tiles:
+            # Quick straight-line distance estimate
+            straight_distance_days = estimate_straight_line_distance(
+                settlement.x, settlement.y, x, y, map_data
+            ) / 24.0
+            
+            # Quick filter with relaxed constraints
+            if straight_distance_days < relaxed_min_days * 0.8:
+                continue
+            if relaxed_max_days is not None and straight_distance_days > relaxed_max_days * 1.1:
+                continue
+            
+            # Full path distance calculation
+            distance_hours = calculate_path_distance(
+                settlement.x, settlement.y, x, y,
+                map_data, map_width, map_height, pathfinder
+            )
+            distance_days = distance_hours / 24.0
+            
+            # Check relaxed distance constraints
+            if distance_days < relaxed_min_days:
+                continue
+            if relaxed_max_days is not None and distance_days > relaxed_max_days:
+                continue
+            
+            # Check path if required
+            if require_path:
+                if pathfinder:
+                    path = pathfinder(settlement.x, settlement.y, x, y)
+                    if not path:
+                        continue
+                else:
+                    if not has_passable_route(settlement.x, settlement.y, x, y, map_data, map_width, map_height):
+                        continue
+            
+            # Found a valid location with relaxed constraints!
+            quest_x, quest_y = x, y
+            # Determine terrain type
+            terrain = map_data[y][x]
+            if terrain.terrain_type == TerrainType.HILLS:
+                location_terrain_type = "hill"
+            elif terrain.terrain_type == TerrainType.FORESTED_HILL:
+                location_terrain_type = "forested_hill"
+            elif terrain.terrain_type == TerrainType.FOREST:
+                location_terrain_type = "forest"
+            elif terrain.terrain_type == TerrainType.GRASSLAND:
+                # Check if it's actually waterside
+                is_waterside = False
+                for dy in [-1, 0, 1]:
+                    for dx in [-1, 0, 1]:
+                        if dx == 0 and dy == 0:
+                            continue
+                        nx, ny = x + dx, y + dy
+                        if 0 <= nx < map_width and 0 <= ny < map_height:
+                            adj_terrain = map_data[ny][nx]
+                            if adj_terrain.terrain_type in [TerrainType.SHALLOW_WATER, TerrainType.DEEP_WATER, TerrainType.RIVER]:
+                                is_waterside = True
+                                break
+                    if is_waterside:
+                        break
+                location_terrain_type = "waterside" if is_waterside else "grassland"
+            else:
+                location_terrain_type = "grassland"
+            break
     
-    # Calculate distance in hours
+    # If STILL no location found (extremely rare - map might be too small or all impassable)
+    if quest_x is None or quest_y is None:
+        return None
+    
+    # Calculate distance in hours and validate constraints
     distance_hours = calculate_path_distance(
         settlement.x, settlement.y, quest_x, quest_y,
         map_data, map_width, map_height, pathfinder
     )
     distance_days = distance_hours / 24.0
+    
+    # Final validation: ensure distance constraints are met
+    if distance_days < min_days:
+        return None
+    if max_days is not None and distance_days > max_days:
+        return None
+    
+    # Final validation: ensure path exists if required
+    if require_path:
+        if pathfinder:
+            path = pathfinder(settlement.x, settlement.y, quest_x, quest_y)
+            if not path:
+                return None
+        else:
+            if not has_passable_route(settlement.x, settlement.y, quest_x, quest_y, map_data, map_width, map_height):
+                return None
     
     # Determine compass direction
     direction = get_compass_direction(settlement.x, settlement.y, quest_x, quest_y)
@@ -165,16 +254,36 @@ def generate_quest(settlement: Settlement, map_data: List[List[Terrain]],
         # Fallback if no descriptions available for this terrain type
         location_description = f"{location_terrain_type.replace('_', ' ')} location"
     
+    # Store the original location description (before adding item text) for map lookup
+    original_location_description = location_description
+    
+    # For fetch quests, add the appropriate item to the description based on settlement type
+    target_item = None
+    if settlement.settlement_type == SettlementType.VILLAGE and VILLAGE_FETCH_QUEST_ITEMS:
+        target_item = random.choice(VILLAGE_FETCH_QUEST_ITEMS)
+        location_description = f"{location_description} There, you must retrieve {target_item.lower()}."
+    elif settlement.settlement_type == SettlementType.TOWN and TOWN_FETCH_QUEST_ITEMS:
+        target_item = random.choice(TOWN_FETCH_QUEST_ITEMS)
+        location_description = f"{location_description} There, you must retrieve {target_item.lower()}."
+    elif settlement.settlement_type == SettlementType.CITY and CITY_FETCH_QUEST_ITEMS:
+        target_item = random.choice(CITY_FETCH_QUEST_ITEMS)
+        location_description = f"{location_description} There, you must retrieve {target_item.lower()}."
+    
     # Build quest data
     quest = {
         'quest_giver': settlement,
         'quest_type': 'fetch',
         'location_terrain_type': location_terrain_type,
-        'location_description': location_description,  # Store the description
+        'location_description': location_description,  # Store the description (includes item for villages)
+        'original_location_description': original_location_description,  # Store original for map lookup
+        'target_item': target_item,  # Store the item separately for save/load
         'quest_coordinates': (quest_x, quest_y),
         'quest_direction': direction,
         'distance': distance_hours,  # Store in hours
-        'distance_days': distance_days
+        'distance_days': distance_days,
+        'item_location': None,  # Will be set when entering quest location
+        'item_found': False,  # Track if item has been found
+        'quest_status': 'active'  # 'active', 'item_found', 'completed'
     }
     
     return quest
@@ -246,8 +355,8 @@ def find_quest_location(settlement: Settlement, map_data: List[List[Terrain]],
     
     # Shuffle and sample a subset for distance/path checking (much faster)
     random.shuffle(terrain_matches)
-    # Check up to 100 candidates (or all if fewer)
-    max_candidates_to_check = min(100, len(terrain_matches))
+    # Check many more candidates - check all if needed
+    max_candidates_to_check = min(500, len(terrain_matches))  # Increased from 100 to 500
     candidates = []
     
     for x, y in terrain_matches[:max_candidates_to_check]:

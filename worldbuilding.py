@@ -262,10 +262,3 @@ def generate_worldbuilding_data(settlements: List[Settlement], seed: int = None,
     
     return world
 
-
-            town_index += 1
-        
-        world[free_town_key] = free_town_data
-    
-    return world
-

@@ -368,16 +368,6 @@ class MapListScreen:
         
         # Update display
         pygame.display.flip()
-
-
-            "Enter/Space: Load selected map",
-            "ESC: Back to menu"
-        ]
-        y_offset = 100
-        for instruction in instructions:
-            inst_text = info_font.render(instruction, True, (180, 180, 180))
-            self.screen.blit(inst_text, (50, y_offset))
-            y_offset += 25
         
         # Back button
         button_font = pygame.font.Font(None, 32)

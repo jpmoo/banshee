@@ -366,7 +366,8 @@ class MapRenderer:
                    selected_city: Optional[Settlement] = None,
                    explored_tiles: Optional[set] = None,
                    visible_tiles: Optional[set] = None,
-                   caravans: Optional[List] = None):
+                   caravans: Optional[List] = None,
+                   is_quest_location: bool = False):
         """
         Render the map to a pygame surface.
         
@@ -418,18 +419,29 @@ class MapRenderer:
                 
                 if tile_surface:
                     # Use tileset tile
-                # Fog of war logic:
+                    # Fog of war logic:
                     if is_visible:
                         # Visible tiles: show normal tile
                         surface.blit(tile_surface, (screen_x, screen_y))
                     elif not is_explored:
-                        # Unexplored: completely black
-                        pygame.draw.rect(surface, (0, 0, 0), rect)
+                        # Unexplored: in quest locations, darken; on overland map, black out
+                        if is_quest_location:
+                            # Quest locations: darken instead of black out
+                            surface.blit(tile_surface, (screen_x, screen_y))
+                            dark_overlay = pygame.Surface((self.tile_size, self.tile_size), pygame.SRCALPHA)
+                            dark_overlay.fill((0, 0, 0, 180))  # 180 alpha = ~70% opacity
+                            surface.blit(dark_overlay, (screen_x, screen_y), special_flags=pygame.BLEND_ALPHA_SDL2)
+                        else:
+                            # Overland map: completely black out unexplored tiles
+                            pygame.draw.rect(surface, (0, 0, 0), rect)
                     else:
                         # Explored but not visible: darken the tile
-                        darkened_tile = tile_surface.copy()
-                        darkened_tile.fill((0, 0, 0, 180), special_flags=pygame.BLEND_RGBA_MULT)
-                        surface.blit(darkened_tile, (screen_x, screen_y))
+                        # Draw the tile first
+                        surface.blit(tile_surface, (screen_x, screen_y))
+                        # Then draw a semi-transparent dark overlay
+                        dark_overlay = pygame.Surface((self.tile_size, self.tile_size), pygame.SRCALPHA)
+                        dark_overlay.fill((0, 0, 0, 150))  # 150 alpha = ~60% opacity
+                        surface.blit(dark_overlay, (screen_x, screen_y), special_flags=pygame.BLEND_ALPHA_SDL2)
                 else:
                     # Fall back to colored rectangles
                     color = terrain.get_color()
@@ -442,8 +454,14 @@ class MapRenderer:
                         # Visible tiles: always show normal color (never darkened)
                         pygame.draw.rect(surface, color, rect)
                     elif not is_explored:
-                        # Unexplored: completely black
-                        pygame.draw.rect(surface, (0, 0, 0), rect)
+                        # Unexplored: in quest locations, darken; on overland map, black out
+                        if is_quest_location:
+                            # Quest locations: darken instead of black out
+                            fog_color = tuple(max(0, int(c * 0.2)) for c in color)
+                            pygame.draw.rect(surface, fog_color, rect)
+                        else:
+                            # Overland map: completely black out unexplored tiles
+                            pygame.draw.rect(surface, (0, 0, 0), rect)
                     else:
                         # Explored but not visible: darken the color (fog of war)
                         # Darken by 70% (keep 30% of original brightness)

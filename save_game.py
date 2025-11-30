@@ -307,29 +307,3 @@ def get_saved_games(directory: str = "saves") -> List[Tuple[str, Dict]]:
     print(f"Debug: Returning {len(saved_games)} saved games")
     return saved_games
 
-
-                # Load save data to get metadata
-                # Use a simplified load that doesn't convert paths for metadata display
-                with gzip.open(filepath, 'rb') as f:
-                    save_data = pickle.load(f)
-                
-                # Convert lists back to sets (but we don't need them for display)
-                if 'explored_tiles' in save_data and isinstance(save_data['explored_tiles'], list):
-                    save_data['explored_tiles'] = set(save_data['explored_tiles'])
-                if 'visible_tiles' in save_data and isinstance(save_data['visible_tiles'], list):
-                    save_data['visible_tiles'] = set(save_data['visible_tiles'])
-                
-                if save_data:
-                    saved_games.append((filepath, save_data))
-                    print(f"Debug: Loaded save file {filename}")
-            except Exception as e:
-                print(f"Error reading save file {filename}: {e}")
-                import traceback
-                traceback.print_exc()
-                continue
-    
-    # Sort by save timestamp (newest first)
-    saved_games.sort(key=lambda x: x[1].get('save_timestamp', ''), reverse=True)
-    print(f"Debug: Returning {len(saved_games)} saved games")
-    return saved_games
-

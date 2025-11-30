@@ -180,8 +180,10 @@ class PlayScreen:
         # Quest state - initialize before _update_camera() which may check in_quest_location
         self.in_quest_location = False
         self.quest_location_map = None
+        self.quest_item_location = None  # (x, y) location of quest item on quest map
         self.quest_location_size = 0
         self.quest_location_approach_direction = None
+        self.pending_exit_quest_confirmation = False  # Flag for exit confirmation prompt
         
         # Camera position (centered on player) - now safe to call after movement state is initialized
         self._update_camera()
@@ -223,6 +225,11 @@ class PlayScreen:
             self.quest_location_approach_direction = saved_state.get('quest_location_approach_direction', None)
             # Restore quest archive
             self.quest_archive = saved_state.get('quest_archive', [])
+            # Restore quest item location if available
+            if self.current_quest and self.current_quest.get('item_location') and not self.current_quest.get('item_found', False):
+                self.quest_item_location = tuple(self.current_quest['item_location'])
+            else:
+                self.quest_item_location = None
             # Quest location map will be recreated if needed when rendering
             if self.in_quest_location and self.quest_location_size > 0:
                 # Recreate quest location map (fully grassland)
@@ -323,9 +330,6 @@ class PlayScreen:
             map_width = self.quest_location_size
             map_height = self.quest_location_size
             
-            # Debug output
-            print(f"DEBUG: Quest camera - approach={approach}, player=({self.player_x},{self.player_y}), map={map_width}x{map_height}, viewport={viewport_width}x{viewport_height}")
-            
             if approach == 'north':
                 # Traveling north (approaching from south): player at bottom of viewport
                 # Player is at y = map_height - 1, should appear at bottom of screen (y = viewport_height - 1)
@@ -334,12 +338,19 @@ class PlayScreen:
                 self.camera_x = max(0, min(map_width - viewport_width, self.player_x - viewport_width // 2))
                 self.camera_y = max(0, min(map_height - viewport_height, self.player_y - viewport_height + 1))
             elif approach == 'south':
-                # Traveling south (approaching from north): player at top of viewport
-                # Player is at y = 0, should appear at top of screen (y = 0)
-                # So: player_y - camera_y = 0
-                # Therefore: camera_y = player_y = 0
+                # Traveling south (approaching from north): player at top of viewport initially
+                # Player is at y = 0 initially, should appear at top of screen (y = 0)
+                # But as player moves down, camera should follow (center on player when possible)
+                # So: player_y - camera_y = 0 initially, but allow camera to scroll down
                 self.camera_x = max(0, min(map_width - viewport_width, self.player_x - viewport_width // 2))
-                self.camera_y = 0
+                # Start at top, but allow scrolling down as player moves
+                # If player is near top, keep camera at top; otherwise center on player
+                if self.player_y < viewport_height // 2:
+                    # Player near top, keep camera at top
+                    self.camera_y = 0
+                else:
+                    # Player moved down, center camera on player
+                    self.camera_y = max(0, min(map_height - viewport_height, self.player_y - viewport_height // 2))
             elif approach == 'east':
                 # Traveling east (approaching from west): player at left of viewport
                 # Player is at x = 0, should appear at left of screen (x = 0)
@@ -453,10 +464,12 @@ class PlayScreen:
                 pygame.draw.rect(map_surface, (255, 255, 0), town_rect)  # Bright yellow
                 pygame.draw.rect(map_surface, (255, 255, 255), town_rect, 2)  # White border
         
-        # Draw quest marker prominently (always visible, even if not explored)
+        # Draw quest marker prominently (always visible, even if not explored) - only if quest is active
         if self.current_quest and not self.in_quest_location:
-            quest_x, quest_y = self.current_quest['quest_coordinates']
-            if start_x <= quest_x < end_x and start_y <= quest_y < end_y:
+            quest_status = self.current_quest.get('quest_status', 'active')
+            if quest_status == 'active':
+                quest_x, quest_y = self.current_quest['quest_coordinates']
+                if start_x <= quest_x < end_x and start_y <= quest_y < end_y:
                     quest_screen_x = (quest_x - self.map_view_camera_x) * self.map_view_tile_size
                     quest_screen_y = (quest_y - self.map_view_camera_y) * self.map_view_tile_size
                     quest_center_x = quest_screen_x + self.map_view_tile_size // 2
@@ -549,37 +562,27 @@ class PlayScreen:
             elif direction == 'west':
                 new_x = max(0, self.player_x - 1)
             
-            # Check if player is trying to exit by moving back in the direction they entered from
-            # Only exit if moving in the opposite direction of entry AND at the entry edge
-            if hasattr(self, 'quest_location_approach_direction') and self.quest_location_approach_direction:
-                entry_direction = self.quest_location_approach_direction
-                # Map entry direction (movement direction when entering) to exit direction (opposite)
-                # If entered moving north, exit by moving south (back the way they came)
-                exit_directions = {
-                    'north': 'south',  # Entered moving north, exit by going south
-                    'south': 'north',  # Entered moving south, exit by going north
-                    'east': 'west',    # Entered moving east, exit by going west
-                    'west': 'east'     # Entered moving west, exit by going east
-                }
-                exit_direction = exit_directions.get(entry_direction)
-                
-                # Only exit if moving in the exit direction AND at the entry edge
-                if direction == exit_direction:
-                    # Check if player is at the entry edge (where they spawned)
-                    at_entry_edge = False
-                    if entry_direction == 'north' and self.player_y == self.quest_location_size - 1:
-                        at_entry_edge = True  # Entered moving north, spawned at bottom edge
-                    elif entry_direction == 'south' and self.player_y == 0:
-                        at_entry_edge = True  # Entered moving south, spawned at top edge
-                    elif entry_direction == 'east' and self.player_x == 0:
-                        at_entry_edge = True  # Entered moving east, spawned at left edge
-                    elif entry_direction == 'west' and self.player_x == self.quest_location_size - 1:
-                        at_entry_edge = True  # Entered moving west, spawned at right edge
-                    
-                    if at_entry_edge:
-                        # Exit quest location
-                        self._exit_quest_location()
-                        return
+            # Check if player is trying to exit by moving off any edge of the map
+            # Allow exit from any edge (not just the entry edge)
+            would_exit = False
+            if direction == 'north' and self.player_y == 0:
+                would_exit = True  # At top edge, moving north would exit
+            elif direction == 'south' and self.player_y == self.quest_location_size - 1:
+                would_exit = True  # At bottom edge, moving south would exit
+            elif direction == 'east' and self.player_x == self.quest_location_size - 1:
+                would_exit = True  # At right edge, moving east would exit
+            elif direction == 'west' and self.player_x == 0:
+                would_exit = True  # At left edge, moving west would exit
+            
+            if would_exit:
+                # Check if we need confirmation to exit
+                if not self.pending_exit_quest_confirmation:
+                    # Prompt for confirmation
+                    self.pending_exit_quest_confirmation = True
+                    self.add_command_message("Leave quest location? (Y/N)")
+                    return
+                # If we get here, confirmation was already handled
+                return
             
             # Use quest location map for terrain checks
             map_data = self.quest_location_map
@@ -608,46 +611,63 @@ class PlayScreen:
         # Check if movement is valid (not into impassable terrain)
         if 0 <= new_x < map_width and 0 <= new_y < map_height:
             terrain = map_data[new_y][new_x]
-            # Check if terrain allows movement using the terrain's method
-            if terrain.can_move_through():
+            # Check if terrain allows movement
+            # In quest locations, shallow water is passable
+            can_move = terrain.can_move_through()
+            if self.in_quest_location and terrain.terrain_type == TerrainType.SHALLOW_WATER:
+                can_move = True
+            
+            if can_move:
                 # In quest location, all movement is instant (no slowed travel)
                 if self.in_quest_location:
                     # Instant movement in quest location
+                    # No time advancement in quest locations
+                    # Check for quest item pickup before executing movement
+                    if self.in_quest_location and self.quest_item_location and not self.current_quest.get('item_found', False):
+                        if (new_x, new_y) == self.quest_item_location:
+                            # Player found the item!
+                            target_item = self.current_quest.get('target_item', 'item')
+                            self.add_command_message(f"{target_item} found!")
+                            self.current_quest['item_found'] = True
+                            self.current_quest['quest_status'] = 'item_found'
+                            self.quest_item_location = None  # Remove from map
+                    
+                    # Execute movement
                     self._execute_movement(new_x, new_y, terrain, direction)
                     # Clear any pending movement
                     self.pending_direction = None
                     self.pending_move_count = 0
                 else:
                     # On overland map - check for slow terrain
-                is_slow_terrain = terrain.terrain_type in [TerrainType.FOREST, TerrainType.HILLS, TerrainType.FORESTED_HILL]
-                
-                if is_slow_terrain:
-                    # For slow terrain, require 2 key presses
-                    if self.pending_direction == direction:
-                        # Second press - complete the movement
-                        self.pending_move_count += 1
-                        if self.pending_move_count >= 2:
-                            # Complete movement
+                    is_slow_terrain = terrain.terrain_type in [TerrainType.FOREST, TerrainType.HILLS, TerrainType.FORESTED_HILL]
+                    
+                    if is_slow_terrain:
+                        # For slow terrain, require 2 key presses
+                        if self.pending_direction == direction:
+                            # Second press - complete the movement
+                            self.pending_move_count += 1
+                            if self.pending_move_count >= 2:
+                                # Complete movement
                                 self._execute_movement(new_x, new_y, terrain, direction)
-                            # Reset pending state
-                            self.pending_direction = None
-                            self.pending_move_count = 0
+                                # Reset pending state
+                                self.pending_direction = None
+                                self.pending_move_count = 0
+                            else:
+                                # Still need more presses - show slowed message
+                                terrain_name = terrain.terrain_type.value.replace('_', ' ').title()
+                                self.add_command_message(f"Slowed - {terrain_name}")
                         else:
-                            # Still need more presses - show slowed message
+                            # First press in this direction - start pending movement
+                            self.pending_direction = direction
+                            self.pending_move_count = 1
                             terrain_name = terrain.terrain_type.value.replace('_', ' ').title()
                             self.add_command_message(f"Slowed - {terrain_name}")
                     else:
-                        # First press in this direction - start pending movement
-                        self.pending_direction = direction
-                        self.pending_move_count = 1
-                        terrain_name = terrain.terrain_type.value.replace('_', ' ').title()
-                        self.add_command_message(f"Slowed - {terrain_name}")
-                else:
-                    # Grassland or other fast terrain - instant movement (no message)
+                        # Grassland or other fast terrain - instant movement (no message)
                         self._execute_movement(new_x, new_y, terrain, direction)
-                    # Clear any pending movement
-                    self.pending_direction = None
-                    self.pending_move_count = 0
+                        # Clear any pending movement
+                        self.pending_direction = None
+                        self.pending_move_count = 0
             else:
                 # Impassable terrain
                 terrain_name = terrain.terrain_type.value.replace('_', ' ').title()
@@ -674,15 +694,15 @@ class PlayScreen:
         """
         # Determine direction from position change if not provided
         if movement_direction is None:
-        if new_y < self.player_y:
+            if new_y < self.player_y:
                 movement_direction = 'north'
-        elif new_y > self.player_y:
+            elif new_y > self.player_y:
                 movement_direction = 'south'
-        elif new_x > self.player_x:
+            elif new_x > self.player_x:
                 movement_direction = 'east'
-        elif new_x < self.player_x:
+            elif new_x < self.player_x:
                 movement_direction = 'west'
-        else:
+            else:
                 movement_direction = None
         
         # Update player position
@@ -696,23 +716,28 @@ class PlayScreen:
         # Update visibility after movement
         self._update_visibility()
         
-        # Check if player landed on a quest location
+        # Check if player landed on a quest location (only if quest is active)
         if self.current_quest and not self.in_quest_location:
-            quest_x, quest_y = self.current_quest['quest_coordinates']
-            if new_x == quest_x and new_y == quest_y:
-                # Enter quest location - use movement direction as approach direction
-                self._enter_quest_location(movement_direction)
-                return
+            quest_status = self.current_quest.get('quest_status', 'active')
+            if quest_status == 'active':
+                quest_x, quest_y = self.current_quest['quest_coordinates']
+                if new_x == quest_x and new_y == quest_y:
+                    # Enter quest location - use movement direction as approach direction
+                    self._enter_quest_location(movement_direction)
+                    return
         
-        # Check if player landed on a settlement
-        self._check_settlement_at_position()
-        
-        # Calculate time cost based on terrain type
-        hours = self._get_movement_time(terrain.terrain_type)
-        self.calendar.add_hours(hours)
-        
-        # Update caravans when player moves (time passes)
-        self._update_caravans_on_move()
+        # Only advance time and update caravans on overland map (not in quest locations)
+        # Quest locations handle time advancement in move_player() before calling _execute_movement
+        if not self.in_quest_location:
+            # Check if player landed on a settlement
+            self._check_settlement_at_position()
+            
+            # Calculate time cost based on terrain type
+            hours = self._get_movement_time(terrain.terrain_type)
+            self.calendar.add_hours(hours)
+            
+            # Update caravans when player moves (time passes)
+            self._update_caravans_on_move()
         
         # No "Moved" message - only show messages for issues
     
@@ -765,41 +790,51 @@ class PlayScreen:
         """Update visible tiles based on line-of-sight from player position."""
         self.visible_tiles.clear()
         
-        # Calculate viewport size in tiles
-        # Viewport shows tiles: map_view_width / tile_size by map_view_height / tile_size
-        viewport_width_tiles = self.map_view_width // self.tile_size
-        viewport_height_tiles = self.map_view_height // self.tile_size
-        
         # Determine map dimensions based on whether we're in a quest location
         if self.in_quest_location:
             map_width = self.quest_location_size
             map_height = self.quest_location_size
             map_data = self.quest_location_map
+            # In quest locations, check all tiles on the map (visibility travels with player)
+            # Check all tiles on the map for line of sight
+            for target_y in range(map_height):
+                for target_x in range(map_width):
+                    # Check line of sight (using appropriate map data)
+                    if self._has_line_of_sight(self.player_x, self.player_y, target_x, target_y, map_data, map_width, map_height):
+                        self.visible_tiles.add((target_x, target_y))
+                        # Mark as explored when visible
+                        self.explored_tiles.add((target_x, target_y))
         else:
+            # On overland map, limit to viewport for performance
             map_width = self.map_width
             map_height = self.map_height
             map_data = self.map_data
-        
-        # Calculate the rectangular bounds of the viewport centered on the player
-        # Half-width and half-height from center
-        half_width = viewport_width_tiles // 2
-        half_height = viewport_height_tiles // 2
-        
-        # Check all tiles within the rectangular viewport bounds
-        for dy in range(-half_height, half_height + 1):
-            for dx in range(-half_width, half_width + 1):
-                target_x = self.player_x + dx
-                target_y = self.player_y + dy
-                
-                # Check bounds
-                if target_x < 0 or target_x >= map_width or target_y < 0 or target_y >= map_height:
-                    continue
-                
-                # Check line of sight (using appropriate map data)
-                if self._has_line_of_sight(self.player_x, self.player_y, target_x, target_y, map_data, map_width, map_height):
-                    self.visible_tiles.add((target_x, target_y))
-                    # Mark as explored when visible (only mark tiles within viewport as explored)
-                    self.explored_tiles.add((target_x, target_y))
+            
+            # Calculate viewport size in tiles
+            # Viewport shows tiles: map_view_width / tile_size by map_view_height / tile_size
+            viewport_width_tiles = self.map_view_width // self.tile_size
+            viewport_height_tiles = self.map_view_height // self.tile_size
+            
+            # Calculate the rectangular bounds of the viewport centered on the player
+            # Half-width and half-height from center
+            half_width = viewport_width_tiles // 2
+            half_height = viewport_height_tiles // 2
+            
+            # Check all tiles within the rectangular viewport bounds
+            for dy in range(-half_height, half_height + 1):
+                for dx in range(-half_width, half_width + 1):
+                    target_x = self.player_x + dx
+                    target_y = self.player_y + dy
+                    
+                    # Check bounds
+                    if target_x < 0 or target_x >= map_width or target_y < 0 or target_y >= map_height:
+                        continue
+                    
+                    # Check line of sight (using appropriate map data)
+                    if self._has_line_of_sight(self.player_x, self.player_y, target_x, target_y, map_data, map_width, map_height):
+                        self.visible_tiles.add((target_x, target_y))
+                        # Mark as explored when visible (only mark tiles within viewport as explored)
+                        self.explored_tiles.add((target_x, target_y))
     
     def _get_terrain_elevation(self, terrain_type: TerrainType) -> int:
         """
@@ -1081,23 +1116,29 @@ class PlayScreen:
                 return False
             return terrain.can_move_through()
         
-        # A* algorithm
+        # A* algorithm with early exit for very long paths
         open_set = [(0, x1, y1)]  # (f_score, x, y)
         came_from = {}
         g_score = {(x1, y1): 0}
         f_score = {(x1, y1): heuristic(x1, y1)}
         visited = set()
         
+        # Limit pathfinding to reasonable distance (prevent excessive computation)
+        max_distance = abs(x2 - x1) + abs(y2 - y1)
+        max_nodes_to_explore = max(5000, max_distance * 100)  # Reasonable limit
+        nodes_explored = 0
+        
         # 8-directional movement (including diagonals)
         directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
         
-        while open_set:
+        while open_set and nodes_explored < max_nodes_to_explore:
             current_f, current_x, current_y = heappop(open_set)
             
             if (current_x, current_y) in visited:
                 continue
             
             visited.add((current_x, current_y))
+            nodes_explored += 1
             
             # Check if we've reached the goal
             if current_x == x2 and current_y == y2:
@@ -1149,12 +1190,12 @@ class PlayScreen:
         for x, y in path:
             if not (0 <= x < self.map_width and 0 <= y < self.map_height):
                 return None  # Out of bounds
-                terrain = self.map_data[y][x]
+            terrain = self.map_data[y][x]
             # Explicitly block water, rivers, and mountains
             if terrain.terrain_type in [TerrainType.SHALLOW_WATER, TerrainType.DEEP_WATER, 
                                        TerrainType.RIVER, TerrainType.MOUNTAIN]:
                 return None  # Invalid path
-                if not terrain.can_move_through():
+            if not terrain.can_move_through():
                 return None  # Impassable terrain
             validated_path.append((x, y))
         
@@ -1186,6 +1227,41 @@ class PlayScreen:
             sx, sy = settlement.get_position()
             if sx == self.player_x and sy == self.player_y:
                 self.current_settlement = settlement
+                
+                # Check if player has a quest that's item_found and is at the quest giver settlement
+                if (self.current_quest and 
+                    self.current_quest.get('quest_status') == 'item_found' and
+                    settlement != prev_settlement):
+                    # Check if this is the quest giver settlement
+                    quest_giver_coords = self.current_quest.get('quest_giver_coords')
+                    if quest_giver_coords and (sx, sy) == tuple(quest_giver_coords):
+                        # Complete the quest!
+                        wb_data = self._find_settlement_worldbuilding_data(settlement)
+                        leader_name = self.current_quest.get('leader_name', 'Unknown Leader')
+                        if wb_data and 'leader' in wb_data and 'name' in wb_data['leader']:
+                            leader_name = wb_data['leader']['name']
+                        
+                        target_item = self.current_quest.get('target_item', 'item')
+                        self.add_command_message(f"{leader_name}: Thank you for retrieving the {target_item.lower()}! You have our gratitude.")
+                        
+                        # Update renown: +3 for completing quest (in addition to +2 for accepting = +5 total)
+                        settlement_key = (sx, sy)
+                        if settlement_key not in self.settlement_renown:
+                            self.settlement_renown[settlement_key] = 0
+                        self.settlement_renown[settlement_key] += 3
+                        
+                        # Archive the completed quest
+                        completed_quest = self.current_quest.copy()
+                        completed_quest['quest_status'] = 'completed'
+                        completed_quest['status'] = 'completed'
+                        completed_quest['completed_at'] = self.calendar.get_full_datetime_string()
+                        self.quest_archive.append(completed_quest)
+                        
+                        # Clear current quest
+                        self.current_quest = None
+                        self.quest_item_location = None
+                        break
+                
                 # Offer quest if player doesn't have one, just landed on this settlement, and it's a village
                 if (not self.current_quest and settlement != prev_settlement and 
                     settlement.settlement_type == SettlementType.VILLAGE):
@@ -1368,13 +1444,13 @@ class PlayScreen:
                     self.add_command_message("> Map view disabled in quest locations")
                     command_executed = True
                 else:
-                # Toggle map view
-                self.map_view_mode = not self.map_view_mode
-                if self.map_view_mode:
-                    # Initialize map view camera to center on player
-                    self.map_view_camera_x = self.player_x - (self.map_view_width // self.map_view_tile_size) // 2
-                    self.map_view_camera_y = self.player_y - (self.map_view_height // self.map_view_tile_size) // 2
-                    self._clamp_map_view_camera()
+                    # Toggle map view
+                    self.map_view_mode = not self.map_view_mode
+                    if self.map_view_mode:
+                        # Initialize map view camera to center on player
+                        self.map_view_camera_x = self.player_x - (self.map_view_width // self.map_view_tile_size) // 2
+                        self.map_view_camera_y = self.player_y - (self.map_view_height // self.map_view_tile_size) // 2
+                        self._clamp_map_view_camera()
             elif self.map_view_mode:
                 # Map view scrolling
                 scroll_speed = 5  # tiles per keypress
@@ -1392,7 +1468,22 @@ class PlayScreen:
                 # Execute commands immediately on keypress (terminal style)
                 command_executed = False
                 
-                # Check for prompt responses FIRST (before movement commands)
+                # Check for exit quest confirmation FIRST - ignore all other input
+                if self.pending_exit_quest_confirmation:
+                    if event.key == pygame.K_y:
+                        self.add_command_message("> Y")
+                        self.pending_exit_quest_confirmation = False
+                        self._exit_quest_location()
+                        return None
+                    elif event.key == pygame.K_n:
+                        self.add_command_message("> N")
+                        self.add_command_message("Cancelled")
+                        self.pending_exit_quest_confirmation = False
+                        return None
+                    # Ignore all other keys when confirmation is pending
+                    return None
+                
+                # Check for prompt responses (before movement commands) - ignore all other input
                 if self.pending_prompt:
                     # Handle prompt responses
                     if self.pending_prompt == 'save_or_load':
@@ -1497,21 +1588,37 @@ class PlayScreen:
                             command_executed = True
                     elif self.pending_prompt == 'journal':
                         if event.key == pygame.K_d:
-                            # Drop quest
-                            if self.current_quest:
-                                # Archive the quest as dropped
-                                archived_quest = self.current_quest.copy()
-                                archived_quest['status'] = 'dropped'
-                                archived_quest['archived_at'] = self.calendar.get_full_datetime_string()
-                                self.quest_archive.append(archived_quest)
-                                # Update renown: -2 for dropping quest
-                                quest_giver_coords = archived_quest.get('quest_giver_coords')
-                                if quest_giver_coords:
-                                    settlement_key = tuple(quest_giver_coords)
-                                    self._update_settlement_renown(settlement_key, -2)
-                                self.add_command_message("> D")
-                                self.add_command_message(f"Quest from {self.current_quest['leader_name']} dropped")
-                                self.current_quest = None
+                            # Drop quest (not allowed in quest location)
+                            if self.in_quest_location:
+                                self.add_command_message("Cannot drop quest while in quest location")
+                                self.pending_prompt = None
+                                command_executed = True
+                            elif self.current_quest:
+                                # Show confirmation dialog
+                                from confirm_dialog import show_confirm_dialog
+                                import pygame as pg
+                                temp_clock = pg.time.Clock()
+                                
+                                # Get quest giver info for warning
+                                leader_name = self.current_quest.get('leader_name', 'Unknown Leader')
+                                settlement_name = self.current_quest.get('settlement_name', 'Unknown Settlement')
+                                warning = f"Warning: You may lose some renown with {leader_name} of {settlement_name}."
+                                
+                                if show_confirm_dialog(self.screen, temp_clock, "Drop this quest?", warning):
+                                    # Archive the quest as dropped
+                                    archived_quest = self.current_quest.copy()
+                                    archived_quest['status'] = 'dropped'
+                                    archived_quest['archived_at'] = self.calendar.get_full_datetime_string()
+                                    self.quest_archive.append(archived_quest)
+                                    # Update renown: -2 for dropping quest
+                                    quest_giver_coords = archived_quest.get('quest_giver_coords')
+                                    if quest_giver_coords:
+                                        settlement_key = tuple(quest_giver_coords)
+                                        self._update_settlement_renown(settlement_key, -2)
+                                    self.add_command_message("> D")
+                                    self.add_command_message(f"Quest from {leader_name} dropped")
+                                    self.current_quest = None
+                                    self.quest_item_location = None
                             self.pending_prompt = None
                             command_executed = True
                         elif event.key == pygame.K_ESCAPE:
@@ -1519,11 +1626,20 @@ class PlayScreen:
                             self.add_command_message("> ESC")
                             self.pending_prompt = None
                         command_executed = True
+                    # Ignore all other keys when prompt is pending
+                    if self.pending_prompt:
+                        return None
                 
-                # Handle quest offer (Y/N keys) - can be used anytime when a quest is offered
-                if self.quest_offer_settlement and not self.current_quest and not self.pending_prompt and not command_executed:
+                # Handle quest offer (Y/N keys) - ignore all other input when quest is offered
+                if self.quest_offer_settlement and not self.current_quest:
                     if event.key == pygame.K_y:
                         self.add_command_message("> Y")
+                        # Get leader name first (needed for error message)
+                        wb_data = self._find_settlement_worldbuilding_data(self.quest_offer_settlement)
+                        leader_name = "Unknown Leader"
+                        if wb_data and 'leader' in wb_data and 'name' in wb_data['leader']:
+                            leader_name = wb_data['leader']['name']
+                        
                         # Accept quest - generate quest data
                         quest = generate_quest(
                             self.quest_offer_settlement,
@@ -1534,10 +1650,6 @@ class PlayScreen:
                         )
                         
                         if quest:
-                            wb_data = self._find_settlement_worldbuilding_data(self.quest_offer_settlement)
-                            leader_name = "Unknown Leader"
-                            if wb_data and 'leader' in wb_data and 'name' in wb_data['leader']:
-                                leader_name = wb_data['leader']['name']
                             
                             # Add leader info to quest
                             quest['leader_name'] = leader_name
@@ -1561,16 +1673,45 @@ class PlayScreen:
                             from journal_dialog import show_journal_dialog
                             import pygame as pg
                             temp_clock = pg.time.Clock()
-                            show_journal_dialog(self.screen, temp_clock, self.current_quest, self.quest_archive)
+                            result = show_journal_dialog(self.screen, temp_clock, self.current_quest, self.quest_archive)
+                            # Handle drop result if user dropped quest immediately
+                            if result == 'drop' and self.current_quest:
+                                # Cannot drop quest while in quest location
+                                if self.in_quest_location:
+                                    self.add_command_message("Cannot drop quest while in quest location")
+                                else:
+                                    # Archive the quest as dropped
+                                    archived_quest = self.current_quest.copy()
+                                    archived_quest['status'] = 'dropped'
+                                    archived_quest['archived_at'] = self.calendar.get_full_datetime_string()
+                                    self.quest_archive.append(archived_quest)
+                                    # Update renown: -2 for dropping quest
+                                    if not hasattr(self, 'settlement_renown'):
+                                        self.settlement_renown = {}
+                                    quest_giver_coords = archived_quest.get('quest_giver_coords')
+                                    if quest_giver_coords:
+                                        settlement_key = tuple(quest_giver_coords)
+                                        if settlement_key not in self.settlement_renown:
+                                            self.settlement_renown[settlement_key] = 0
+                                        self.settlement_renown[settlement_key] = max(0, self.settlement_renown[settlement_key] - 2)
+                                    leader_name = self.current_quest.get('leader_name', 'Unknown Leader')
+                                    self.add_command_message(f"Quest from {leader_name} dropped")
+                                    self.current_quest = None
+                                    self.quest_item_location = None
                         else:
-                            self.add_command_message("Could not find valid quest location. Try again later.")
-                        command_executed = True
+                            # Quest generation failed - print console message
+                            import sys
+                            print(f"{leader_name} says that there are actually no quests at this time. Try again later!", file=sys.stderr, flush=True)
+                            self.quest_offer_settlement = None
+                        return None
                     elif event.key == pygame.K_n:
                         self.add_command_message("> N")
                         # Decline quest
                         self.add_command_message("Quest declined")
                         self.quest_offer_settlement = None
-                        command_executed = True
+                        return None
+                    # Ignore all other keys when quest offer is pending
+                    return None
                 
                 # Only process movement and other commands if no prompt is active
                 if not self.pending_prompt and not command_executed:
@@ -1643,23 +1784,28 @@ class PlayScreen:
                         temp_clock = pg.time.Clock()
                         result = show_journal_dialog(self.screen, temp_clock, quest=self.current_quest, quest_archive=self.quest_archive)
                         if result == 'drop' and self.current_quest:
-                            # Archive the quest as dropped
-                            archived_quest = self.current_quest.copy()
-                            archived_quest['status'] = 'dropped'
-                            archived_quest['archived_at'] = self.calendar.get_full_datetime_string()
-                            self.quest_archive.append(archived_quest)
-                            # Update renown: -2 for dropping quest
-                            if not hasattr(self, 'settlement_renown'):
-                                self.settlement_renown = {}
-                            quest_giver_coords = archived_quest.get('quest_giver_coords')
-                            if quest_giver_coords:
-                                settlement_key = tuple(quest_giver_coords)
-                                if settlement_key not in self.settlement_renown:
-                                    self.settlement_renown[settlement_key] = 0
-                                self.settlement_renown[settlement_key] = max(0, self.settlement_renown[settlement_key] - 2)
-                            self.add_command_message("> D")
-                            self.add_command_message(f"Quest from {self.current_quest['leader_name']} dropped")
-                            self.current_quest = None
+                            # Cannot drop quest while in quest location
+                            if self.in_quest_location:
+                                self.add_command_message("Cannot drop quest while in quest location")
+                            else:
+                                # Archive the quest as dropped
+                                archived_quest = self.current_quest.copy()
+                                archived_quest['status'] = 'dropped'
+                                archived_quest['archived_at'] = self.calendar.get_full_datetime_string()
+                                self.quest_archive.append(archived_quest)
+                                # Update renown: -2 for dropping quest
+                                if not hasattr(self, 'settlement_renown'):
+                                    self.settlement_renown = {}
+                                quest_giver_coords = archived_quest.get('quest_giver_coords')
+                                if quest_giver_coords:
+                                    settlement_key = tuple(quest_giver_coords)
+                                    if settlement_key not in self.settlement_renown:
+                                        self.settlement_renown[settlement_key] = 0
+                                    self.settlement_renown[settlement_key] = max(0, self.settlement_renown[settlement_key] - 2)
+                                leader_name = self.current_quest.get('leader_name', 'Unknown Leader')
+                                self.add_command_message(f"Quest from {leader_name} dropped")
+                                self.current_quest = None
+                                self.quest_item_location = None
                         command_executed = True
                     elif event.key == pygame.K_UP and self.current_settlement:
                         # Scroll status area up
@@ -1711,19 +1857,21 @@ class PlayScreen:
                     village_x, village_y = village.get_position()
                     town_x, town_y = town.get_position()
                     
-                    # Check if path is clear
-                    if self._has_clear_path(village_x, village_y, town_x, town_y):
+                    # Get paths directly (avoid double pathfinding)
+                    path_to_town = self._get_path(village_x, village_y, town_x, town_y)
+                    if not path_to_town:
+                        continue  # No path to town, skip this caravan
+                    
+                    path_to_village = self._get_path(town_x, town_y, village_x, village_y)
+                    if not path_to_village:
+                        continue  # No return path, skip this caravan
+                    
+                    # Validate paths - ensure no water tiles
+                    path_to_town = self._validate_path(path_to_town)
+                    path_to_village = self._validate_path(path_to_village)
+                    
+                    if path_to_town and path_to_village:
                         caravan = Caravan(village, town, village_x, village_y)
-                        
-                        # Set paths
-                        path_to_town = self._get_path(village_x, village_y, town_x, town_y)
-                        path_to_village = self._get_path(town_x, town_y, village_x, village_y)
-                        
-                        # Validate paths - ensure no water tiles
-                        path_to_town = self._validate_path(path_to_town)
-                        path_to_village = self._validate_path(path_to_village)
-                        
-                        if path_to_town and path_to_village:
                         caravan.set_path_to_town(path_to_town)
                         caravan.set_path_to_village(path_to_village)
                         
@@ -1731,8 +1879,7 @@ class PlayScreen:
                         caravan.start_journey_to_town()
                         
                         self.caravans.append(caravan)
-                        else:
-                            continue  # Invalid path, skip this caravan
+                    # Note: If path is not valid, caravan simply doesn't spawn (silent failure)
                     # Note: If path is not clear, caravan simply doesn't spawn (silent failure)
     
     def _update_caravans_on_move(self):
@@ -1746,30 +1893,23 @@ class PlayScreen:
                 current_tile_y = int(caravan.y)
                 
                 # Check if we have a path and haven't reached the end
-                        if caravan.path_index_to_town >= len(caravan.path_to_town):
-                            # Arrived at town
-                            town_x, town_y = caravan.town.get_position()
-                            caravan.x = float(town_x)
-                            caravan.y = float(town_y)
-                            caravan.state = CaravanState.AT_TOWN
-                            caravan.arrived_at_town_time = (self.calendar.day, self.calendar.hour)
+                if caravan.path_index_to_town >= len(caravan.path_to_town):
+                    # Arrived at town
+                    town_x, town_y = caravan.town.get_position()
+                    caravan.x = float(town_x)
+                    caravan.y = float(town_y)
+                    caravan.state = CaravanState.AT_TOWN
+                    caravan.arrived_at_town_time = (self.calendar.day, self.calendar.hour)
                     
                     # Add resources to town immediately
                     if caravan.village.supplies_resource:
                         caravan.town.add_resource(caravan.village.supplies_resource, 10)
                         
-                        # Check for trade good production
-                        trade_goods_produced = caravan.town.produce_trade_goods()
+                        # Check for trade good production (silently, no messages)
+                        caravan.town.produce_trade_goods()
                         
-                        # Check for trade good transfer to liege
-                        trade_goods_transferred = caravan.town.transfer_trade_goods_to_liege()
-                        
-                        # Log messages if something happened
-                        if trade_goods_produced > 0:
-                            self.add_status_message(f"{caravan.town.name or 'Town'} produced {trade_goods_produced} trade good(s)")
-                        if trade_goods_transferred > 0:
-                            liege_name = caravan.town.vassal_to.name if caravan.town.vassal_to else "Unknown"
-                            self.add_status_message(f"{caravan.town.name or 'Town'} sent {trade_goods_transferred} trade goods to {liege_name}")
+                        # Check for trade good transfer to liege (silently, no messages)
+                        caravan.town.transfer_trade_goods_to_liege()
                     continue
                 
                 # Get next waypoint
@@ -1808,15 +1948,15 @@ class PlayScreen:
                                 caravan.path_index_to_town += 1
                                 caravan.pending_direction = None
                                 caravan.pending_move_count = 0
-                    else:
+                        else:
                             # Different direction - reset and start new pending
                             caravan.pending_direction = (target_x, target_y)
                             caravan.pending_move_count = 1
-                        else:
+                    else:
                         # Fast terrain - move immediately
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_town += 1
+                        caravan.x = float(target_x)
+                        caravan.y = float(target_y)
+                        caravan.path_index_to_town += 1
                         caravan.pending_direction = None
                         caravan.pending_move_count = 0
             
@@ -1837,14 +1977,14 @@ class PlayScreen:
                 current_tile_y = int(caravan.y)
                 
                 # Check if we have a path and haven't reached the end
-                        if caravan.path_index_to_village >= len(caravan.path_to_village):
+                if caravan.path_index_to_village >= len(caravan.path_to_village):
                     # Arrived at village
-                            village_x, village_y = caravan.village.get_position()
-                            caravan.x = float(village_x)
-                            caravan.y = float(village_y)
-                            caravan.state = CaravanState.AT_VILLAGE
+                    village_x, village_y = caravan.village.get_position()
+                    caravan.x = float(village_x)
+                    caravan.y = float(village_y)
+                    caravan.state = CaravanState.AT_VILLAGE
                     # Remove caravan when it returns
-                            self.caravans.remove(caravan)
+                    self.caravans.remove(caravan)
                     continue
                 
                 # Get next waypoint
@@ -1883,15 +2023,15 @@ class PlayScreen:
                                 caravan.path_index_to_village += 1
                                 caravan.pending_direction = None
                                 caravan.pending_move_count = 0
-                    else:
+                        else:
                             # Different direction - reset and start new pending
                             caravan.pending_direction = (target_x, target_y)
                             caravan.pending_move_count = 1
-                        else:
+                    else:
                         # Fast terrain - move immediately
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_village += 1
+                        caravan.x = float(target_x)
+                        caravan.y = float(target_y)
+                        caravan.path_index_to_village += 1
                         caravan.pending_direction = None
                         caravan.pending_move_count = 0
     
@@ -1937,18 +2077,62 @@ class PlayScreen:
             # Use normal explored/visible tiles for fog of war
             self.renderer.render_map(self.quest_location_map, map_surface, quest_marker=None,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
-                                    settlements=[], explored_tiles=self.explored_tiles, visible_tiles=self.visible_tiles, caravans=[])
+                                    settlements=[], explored_tiles=self.explored_tiles, visible_tiles=self.visible_tiles, caravans=[],
+                                    is_quest_location=True)
+            
+            # Draw quest item marker if item hasn't been found
+            if self.quest_item_location and not self.current_quest.get('item_found', False):
+                item_x, item_y = self.quest_item_location
+                import sys
+                print(f"DEBUG RENDER: Quest item at ({item_x}, {item_y}), visible_tiles check: {(item_x, item_y) in self.visible_tiles}", file=sys.stderr, flush=True)
+                print(f"DEBUG RENDER: visible_tiles count: {len(self.visible_tiles)}, explored_tiles count: {len(self.explored_tiles)}", file=sys.stderr, flush=True)
+                print(f"DEBUG RENDER: Player at ({self.player_x}, {self.player_y}), camera at ({camera_x_int}, {camera_y_int})", file=sys.stderr, flush=True)
+                # Only render if the tile is visible (not darkened by fog of war)
+                if (item_x, item_y) in self.visible_tiles:
+                    # Calculate screen position
+                    screen_x = (item_x - camera_x_int) * self.tile_size
+                    screen_y = (item_y - camera_y_int) * self.tile_size
+                    import sys
+                    print(f"DEBUG RENDER: Screen position: ({screen_x}, {screen_y}), viewport: {self.map_view_width}x{self.map_view_height}", file=sys.stderr, flush=True)
+                    # Draw item marker (golden star/glow)
+                    if 0 <= screen_x < self.map_view_width and 0 <= screen_y < self.map_view_height:
+                        import sys
+                        print(f"DEBUG RENDER: Rendering quest item marker at screen ({screen_x}, {screen_y})", file=sys.stderr, flush=True)
+                        center_x = screen_x + self.tile_size // 2
+                        center_y = screen_y + self.tile_size // 2
+                        # Draw golden glow
+                        import math
+                        glow_size = self.tile_size // 2
+                        for i in range(3):
+                            alpha = 200 - i * 50
+                            glow_radius = glow_size + i * 2
+                            glow_surface = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
+                            pygame.draw.circle(glow_surface, (255, 215, 0, alpha), (glow_radius, glow_radius), glow_radius)
+                            map_surface.blit(glow_surface, (center_x - glow_radius, center_y - glow_radius), special_flags=pygame.BLEND_ALPHA_SDL2)
+                        # Draw star/pentagon
+                        star_size = self.tile_size // 3
+                        star_color = (255, 255, 0)  # Bright yellow
+                        points = []
+                        for i in range(5):
+                            angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                            px = center_x + star_size * math.cos(angle)
+                            py = center_y + star_size * math.sin(angle)
+                            points.append((px, py))
+                        pygame.draw.polygon(map_surface, star_color, points)
+                        pygame.draw.polygon(map_surface, (255, 200, 0), points, 2)  # Orange border
         else:
             # Render overland map
-        # Convert camera position to integers for rendering (tiles are discrete)
-        camera_x_int = int(self.camera_x)
-        camera_y_int = int(self.camera_y)
+            # Convert camera position to integers for rendering (tiles are discrete)
+            camera_x_int = int(self.camera_x)
+            camera_y_int = int(self.camera_y)
             
-            # Mark quest location if we have one
+            # Mark quest location if we have one (only if quest is active)
             quest_marker = None
             if self.current_quest and not self.in_quest_location:
-                quest_x, quest_y = self.current_quest['quest_coordinates']
-                quest_marker = (quest_x, quest_y)
+                quest_status = self.current_quest.get('quest_status', 'active')
+                if quest_status == 'active':
+                    quest_x, quest_y = self.current_quest['quest_coordinates']
+                    quest_marker = (quest_x, quest_y)
             
             self.renderer.render_map(self.map_data, map_surface, quest_marker=quest_marker,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
@@ -2010,7 +2194,15 @@ class PlayScreen:
         
         # Display quest status
         if self.current_quest:
-            quest_text = "Quest: Active"
+            quest_status = self.current_quest.get('quest_status', 'active')
+            if quest_status == 'item_found':
+                # Show "active, pending return to {settlement}"
+                settlement_name = self.current_quest.get('settlement_name', 'settlement')
+                quest_text = f"Quest: Active, pending return to {settlement_name}"
+            elif quest_status == 'active':
+                quest_text = "Quest: Active"
+            else:
+                quest_text = f"Quest: {quest_status.title()}"
             quest_surface = font.render(quest_text, True, (255, 200, 100))  # Orange
             self.screen.blit(quest_surface, (self.map_view_width + 10, y_pos))
         else:
@@ -2036,35 +2228,106 @@ class PlayScreen:
             settlement = self.current_settlement
             settlement_name = settlement.name if settlement.name else "Unnamed"
             
-            # Settlement name header
-            settlement_title = title_font.render(settlement_name, True, (255, 255, 0))  # Yellow
-            content_surface.blit(settlement_title, (10, y_offset))
-            y_offset += 30
-            
             # Get worldbuilding data
             wb_data = self._find_settlement_worldbuilding_data(settlement)
             
-            # Debug: Print worldbuilding data lookup
-            if not wb_data:
-                print(f"Debug: No worldbuilding data found for {settlement.name} (type: {settlement.settlement_type})")
-                if self.worldbuilding_data:
-                    print(f"Debug: Worldbuilding data exists with {len(self.worldbuilding_data)} top-level keys")
-                else:
-                    print("Debug: No worldbuilding data loaded at all")
+            # Build formatted description based on settlement type
+            desc_font = pygame.font.Font(None, 22)
+            formatted_lines = []
             
-            # Display description if available
+            # Settlement name (header)
+            formatted_lines.append((settlement_name, title_font, (255, 255, 0)))  # Yellow
+            
+            # Get description (tone and flavor)
             if wb_data and 'description' in wb_data:
-                desc_text = wb_data['description']
-                # Word wrap description
-                desc_font = pygame.font.Font(None, 22)
-                words = desc_text.split()
+                formatted_lines.append((wb_data['description'], desc_font, (200, 200, 200)))
+            
+            # Get leader info
+            leader_name = "Unknown Leader"
+            leader_bio = ""
+            if wb_data and 'leader' in wb_data:
+                leader = wb_data['leader']
+                if 'name' in leader:
+                    leader_name = leader['name']
+                if 'biography' in leader:
+                    leader_bio = leader['biography']
+            
+            # Format based on settlement type
+            if settlement.settlement_type == SettlementType.VILLAGE:
+                # Village format: "Their leader is {leader name}, who {leader description}."
+                leader_text = f"Their leader is {leader_name}, who {leader_bio}." if leader_bio else f"Their leader is {leader_name}."
+                formatted_lines.append((leader_text, desc_font, (200, 200, 200)))
+                
+                # Resource and town relationship
+                resource = settlement.supplies_resource or "Unknown"
+                town_name = settlement.vassal_to.name if settlement.vassal_to and settlement.vassal_to.name else "Unknown"
+                resource_text = f"This village sends {resource} to {town_name} in return for protection."
+                formatted_lines.append((resource_text, desc_font, (200, 200, 200)))
+            
+            elif settlement.settlement_type == SettlementType.TOWN:
+                # Town format: "Their leader is {leader name}, who {leader description}. {leader name} kneels to {city leader} of {city name} and sends trade goods as tribute (or "kneels to no one" if it's a free city.)"
+                leader_text = f"Their leader is {leader_name}, who {leader_bio}." if leader_bio else f"Their leader is {leader_name}."
+                formatted_lines.append((leader_text, desc_font, (200, 200, 200)))
+                
+                # City relationship
+                if settlement.vassal_to and settlement.vassal_to.settlement_type == SettlementType.CITY:
+                    city = settlement.vassal_to
+                    city_name = city.name if city.name else "Unknown"
+                    # Get city leader name
+                    city_wb_data = self._find_settlement_worldbuilding_data(city)
+                    city_leader_name = "Unknown Leader"
+                    if city_wb_data and 'leader' in city_wb_data and 'name' in city_wb_data['leader']:
+                        city_leader_name = city_wb_data['leader']['name']
+                    kneel_text = f"{leader_name} kneels to {city_leader_name} of {city_name} and sends trade goods as tribute."
+                else:
+                    kneel_text = f"{leader_name} kneels to no one."
+                formatted_lines.append((kneel_text, desc_font, (200, 200, 200)))
+                
+                # Village resources
+                if settlement.vassal_villages:
+                    village_list = []
+                    for village in settlement.vassal_villages:
+                        village_name = village.name if village.name else "Unnamed"
+                        resource = village.supplies_resource or "Unknown"
+                        village_list.append(f"{village_name} ({resource})")
+                    villages_text = f"This town receives resources from several villages: {', '.join(village_list)}."
+                    formatted_lines.append((villages_text, desc_font, (200, 200, 200)))
+            
+            elif settlement.settlement_type == SettlementType.CITY:
+                # City format: "Their leader is {leader name}, who {description}."
+                leader_text = f"Their leader is {leader_name}, who {leader_bio}." if leader_bio else f"Their leader is {leader_name}."
+                formatted_lines.append((leader_text, desc_font, (200, 200, 200)))
+                
+                # Towns under yoke
+                if settlement.vassal_towns:
+                    town_list = []
+                    for town in settlement.vassal_towns:
+                        town_name = town.name if town.name else "Unnamed"
+                        town_list.append(town_name)
+                    towns_text = f"This city has the following towns under its yoke, and extracts tribute in trade goods from each: {', '.join(town_list)}."
+                    formatted_lines.append((towns_text, desc_font, (200, 200, 200)))
+            
+            # Renown statement (without number)
+            settlement_key = (settlement.x, settlement.y)
+            if not hasattr(self, 'settlement_renown'):
+                self.settlement_renown = {}
+            if settlement_key not in self.settlement_renown:
+                self.settlement_renown[settlement_key] = 0
+            renown = max(0, self.settlement_renown.get(settlement_key, 0))
+            renown_description = self._get_renown_description(renown)
+            formatted_lines.append((renown_description, desc_font, (255, 255, 150)))  # Yellow
+            
+            # Render all formatted lines with word wrapping
+            for line_text, line_font, line_color in formatted_lines:
+                # Word wrap the line
+                words = line_text.split()
                 lines = []
                 current_line = []
                 current_width = 0
                 max_width = self.status_width - 30
                 
                 for word in words:
-                    word_surface = desc_font.render(word + ' ', True, (200, 200, 200))
+                    word_surface = line_font.render(word + ' ', True, line_color)
                     word_width = word_surface.get_width()
                     if current_width + word_width > max_width and current_line:
                         lines.append(' '.join(current_line))
@@ -2077,145 +2340,12 @@ class PlayScreen:
                 if current_line:
                     lines.append(' '.join(current_line))
                 
+                # Render each wrapped line
                 for line in lines:
-                    desc_surface = desc_font.render(line, True, (200, 200, 200))
-                    content_surface.blit(desc_surface, (10, y_offset))
-                    y_offset += 22
-                y_offset += 10
-            
-            # Display leader info if available
-            if wb_data and 'leader' in wb_data:
-                leader = wb_data['leader']
-                leader_font = pygame.font.Font(None, 24)
-                
-                if 'name' in leader:
-                    leader_name_text = f"Leader: {leader['name']}"
-                    leader_name_surface = leader_font.render(leader_name_text, True, (255, 200, 100))  # Orange
-                    content_surface.blit(leader_name_surface, (10, y_offset))
-                    y_offset += 28
-                
-                if 'biography' in leader:
-                    bio_text = leader['biography']
-                    # Word wrap biography
-                    bio_font = pygame.font.Font(None, 22)
-                    words = bio_text.split()
-                    lines = []
-                    current_line = []
-                    current_width = 0
-                    max_width = self.status_width - 30
-                    
-                    for word in words:
-                        word_surface = bio_font.render(word + ' ', True, (180, 180, 255))
-                        word_width = word_surface.get_width()
-                        if current_width + word_width > max_width and current_line:
-                            lines.append(' '.join(current_line))
-                            current_line = [word]
-                            current_width = word_width
-                        else:
-                            current_line.append(word)
-                            current_width += word_width
-                    
-                    if current_line:
-                        lines.append(' '.join(current_line))
-                    
-                    for line in lines:
-                        bio_surface = bio_font.render(line, True, (180, 180, 255))
-                        content_surface.blit(bio_surface, (10, y_offset))
-                        y_offset += 22
-                    y_offset += 10
-            
-            # Display renown with this settlement
-            settlement_key = (settlement.x, settlement.y)
-            # Handle legacy saves - ensure renown exists
-            if not hasattr(self, 'settlement_renown'):
-                self.settlement_renown = {}
-            if settlement_key not in self.settlement_renown:
-                self.settlement_renown[settlement_key] = 0
-            renown = max(0, self.settlement_renown.get(settlement_key, 0))  # Ensure never negative
-            renown_description = self._get_renown_description(renown)
-            renown_text = f"Renown: {renown} - {renown_description}"
-            renown_surface = font.render(renown_text, True, (255, 255, 150))  # Yellow
-            content_surface.blit(renown_surface, (10, y_offset))
-            y_offset += 30
-            
-            # Display settlement type-specific info
-            if settlement.settlement_type == SettlementType.VILLAGE:
-                # Village: Show resource and town relationship
-                resource = settlement.supplies_resource or "Unknown"
-                town_name = settlement.vassal_to.name if settlement.vassal_to else "Unknown"
-                village_text = f"Sends {resource} to {town_name} in return for protection."
-                # Word wrap village text if needed
-                village_lines = wrap_text(village_text, font, self.status_width - 30)
-                for line in village_lines:
-                    village_surface = font.render(line, True, (200, 255, 200))  # Light green
-                    content_surface.blit(village_surface, (10, y_offset))
-                    y_offset += 28
-                y_offset += 2  # Small spacing after wrapped text
-            
-            elif settlement.settlement_type == SettlementType.TOWN:
-                # Town: Show vassal relationships, resources, and trade goods
-                # Vassal relationships
-                if settlement.vassal_to:
-                    liege_name = settlement.vassal_to.name if settlement.vassal_to.name else "Unnamed"
-                    liege_text = f"Vassal to: {liege_name}"
-                    liege_surface = font.render(liege_text, True, (255, 200, 100))  # Orange
-                    content_surface.blit(liege_surface, (10, y_offset))
-                    y_offset += 25
-                else:
-                    free_text = "Status: Independent"
-                    free_surface = font.render(free_text, True, (150, 150, 150))  # Gray
-                    content_surface.blit(free_surface, (10, y_offset))
-                    y_offset += 25
-                
-                # Vassal villages
-                if settlement.vassal_villages:
-                    vassal_count = len(settlement.vassal_villages)
-                    vassal_text = f"Vassal villages: {vassal_count}"
-                    vassal_surface = font.render(vassal_text, True, (200, 200, 200))
-                    content_surface.blit(vassal_surface, (10, y_offset))
-                    y_offset += 25
-                
-                # Resources
-                resources_text = "Resources:"
-                resources_surface = font.render(resources_text, True, (200, 200, 255))
-                content_surface.blit(resources_surface, (10, y_offset))
-                y_offset += 25
-                
-                for resource_name, amount in settlement.resources.items():
-                    resource_text = f"  {resource_name}: {amount}"
-                    resource_surface = font.render(resource_text, True, (180, 180, 255))
-                    content_surface.blit(resource_surface, (10, y_offset))
-                    y_offset += 20
-                
-                # Trade goods
-                trade_text = f"Trade goods: {settlement.trade_goods}"
-                # Word wrap trade text if needed
-                trade_lines = wrap_text(trade_text, font, self.status_width - 30)
-                for line in trade_lines:
-                    trade_surface = font.render(line, True, (255, 215, 0))  # Gold
-                    content_surface.blit(trade_surface, (10, y_offset))
-                    y_offset += 28
-                y_offset += 2  # Small spacing after wrapped text
-            
-            elif settlement.settlement_type == SettlementType.CITY:
-                # City: Show vassal relationships and trade goods
-                # Vassal towns
-                if settlement.vassal_towns:
-                    vassal_count = len(settlement.vassal_towns)
-                    vassal_text = f"Vassal towns: {vassal_count}"
-                    vassal_surface = font.render(vassal_text, True, (200, 200, 200))
-                    content_surface.blit(vassal_surface, (10, y_offset))
-                    y_offset += 25
-                
-                # Trade goods
-                trade_text = f"Trade goods: {settlement.trade_goods}"
-                # Word wrap trade text if needed
-                trade_lines = wrap_text(trade_text, font, self.status_width - 30)
-                for line in trade_lines:
-                    trade_surface = font.render(line, True, (255, 215, 0))  # Gold
-                    content_surface.blit(trade_surface, (10, y_offset))
-                    y_offset += 28
-                y_offset += 2  # Small spacing after wrapped text
+                    line_surface = line_font.render(line, True, line_color)
+                    content_surface.blit(line_surface, (10, y_offset))
+                    y_offset += 22 if line_font == desc_font else 30
+                y_offset += 5  # Small spacing between sections
             
             # Update max scroll based on content height
             max_scroll = max(0, y_offset + self.status_scroll_offset - status_content_height)
@@ -2228,12 +2358,12 @@ class PlayScreen:
         
         # Messages (scrollable, show most recent) - appear after settlement info or at y_offset=100 if no settlement
         if not self.current_settlement:
-        y_offset = 100
-        for message in self.status_messages[-12:]:  # Show last 12 messages (less space due to date and terrain)
-            text_surface = font.render(message, True, (200, 200, 200))
-            if y_offset + text_surface.get_height() < self.status_height - 10:
-                self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
-                y_offset += 25
+            y_offset = 100
+            for message in self.status_messages[-12:]:  # Show last 12 messages (less space due to date and terrain)
+                text_surface = font.render(message, True, (200, 200, 200))
+                if y_offset + text_surface.get_height() < self.status_height - 10:
+                    self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
+                    y_offset += 25
         
         # Draw command/results area (bottom 1x3) - terminal style
         command_rect = pygame.Rect(0, self.map_view_height, self.command_width, self.command_height)
@@ -2342,7 +2472,8 @@ class PlayScreen:
         
         # Get terrain type and description from quest location
         location_terrain_type_str = self.current_quest.get('location_terrain_type', 'grassland')
-        location_description = self.current_quest.get('location_description', 'location')
+        # Use original location description for map lookup (before item text was appended)
+        location_description = self.current_quest.get('original_location_description') or self.current_quest.get('location_description', 'location')
         
         # Generate quest location map based on description
         from quest_location_maps import generate_quest_location_map
@@ -2383,11 +2514,141 @@ class PlayScreen:
         
         self.quest_location_approach_direction = approach
         
+        # Place quest item on the map if this is a fetch quest
+        import sys
+        print(f"DEBUG ENTER: _enter_quest_location called. current_quest exists: {self.current_quest is not None}", file=sys.stderr, flush=True)
+        if self.current_quest:
+            print(f"DEBUG ENTER: quest_type: {self.current_quest.get('quest_type')}, target_item: {self.current_quest.get('target_item')}", file=sys.stderr, flush=True)
+        if self.current_quest and self.current_quest.get('quest_type') == 'fetch' and self.current_quest.get('target_item'):
+            import sys
+            print(f"DEBUG: Placing quest item for fetch quest. target_item: {self.current_quest.get('target_item')}", file=sys.stderr, flush=True)
+            # Restore item location from saved quest if available, otherwise find a new one
+            saved_item_location = self.current_quest.get('item_location')
+            if saved_item_location and not self.current_quest.get('item_found', False):
+                # Restore saved location
+                self.quest_item_location = tuple(saved_item_location)
+                import sys
+                print(f"DEBUG: Restored quest item location from save: {self.quest_item_location}", file=sys.stderr, flush=True)
+            else:
+                # Find a good location for the item
+                self.quest_item_location = self._find_quest_item_location(self.quest_location_map, self.quest_location_size)
+                if self.quest_item_location:
+                    # Save the location in the quest
+                    self.current_quest['item_location'] = list(self.quest_item_location)
+                    import sys
+                    print(f"DEBUG: Found new quest item location: {self.quest_item_location}", file=sys.stderr, flush=True)
+                else:
+                    import sys
+                    print(f"DEBUG: WARNING - Could not find a location for quest item!", file=sys.stderr, flush=True)
+            
+            # Mark item location as explored and visible so it can be rendered and touched
+            if self.quest_item_location:
+                self.explored_tiles.add(self.quest_item_location)
+                self.visible_tiles.add(self.quest_item_location)
+                import sys
+                print(f"DEBUG: Marked quest item location as explored and visible: {self.quest_item_location}", file=sys.stderr, flush=True)
+            else:
+                import sys
+                print(f"DEBUG: WARNING - quest_item_location is None!", file=sys.stderr, flush=True)
+        else:
+            import sys
+            print(f"DEBUG: Not a fetch quest or missing target_item. quest_type: {self.current_quest.get('quest_type') if self.current_quest else None}, target_item: {self.current_quest.get('target_item') if self.current_quest else None}", file=sys.stderr, flush=True)
+            self.quest_item_location = None
+        
         # Mark player position as explored and update visibility
         self.explored_tiles.add((self.player_x, self.player_y))
         self._update_visibility()
         
         self._update_camera()
+    
+    def _find_quest_item_location(self, map_data: List[List[Terrain]], map_size: int) -> Optional[Tuple[int, int]]:
+        """
+        Find a good location for the quest item on the quest location map.
+        Prefers locations inside structures (GRASSLAND tiles adjacent to MOUNTAIN).
+        
+        Returns:
+            (x, y) coordinates or None if no suitable location found
+        """
+        import random
+        from terrain import TerrainType
+        
+        # First, try to find GRASSLAND tiles inside structures (adjacent to MOUNTAIN)
+        structure_interior = []
+        for y in range(1, map_size - 1):
+            for x in range(1, map_size - 1):
+                terrain = map_data[y][x]
+                # Must be passable (GRASSLAND)
+                if terrain.terrain_type == TerrainType.GRASSLAND and terrain.can_move_through():
+                    # Check if adjacent to MOUNTAIN (inside a structure)
+                    is_inside_structure = False
+                    for dy in [-1, 0, 1]:
+                        for dx in [-1, 0, 1]:
+                            if dx == 0 and dy == 0:
+                                continue
+                            nx, ny = x + dx, y + dy
+                            if 0 <= nx < map_size and 0 <= ny < map_size:
+                                adj_terrain = map_data[ny][nx]
+                                if adj_terrain.terrain_type == TerrainType.MOUNTAIN:
+                                    is_inside_structure = True
+                                    break
+                        if is_inside_structure:
+                            break
+                    if is_inside_structure:
+                        structure_interior.append((x, y))
+        
+        # If we found structure interiors, prefer those
+        if structure_interior:
+            # Prefer locations away from edges and player spawn
+            player_spawn_x = self.player_x
+            player_spawn_y = self.player_y
+            
+            # Score locations (prefer center, away from spawn)
+            scored_locations = []
+            for x, y in structure_interior:
+                # Distance from center
+                center_x, center_y = map_size // 2, map_size // 2
+                dist_from_center = ((x - center_x) ** 2 + (y - center_y) ** 2) ** 0.5
+                # Distance from spawn
+                dist_from_spawn = ((x - player_spawn_x) ** 2 + (y - player_spawn_y) ** 2) ** 0.5
+                # Prefer locations that are near center but not too close to spawn
+                score = dist_from_center * 0.5 + dist_from_spawn * 1.5
+                scored_locations.append((score, x, y))
+            
+            # Sort by score (lower is better) and pick from top candidates
+            scored_locations.sort()
+            if scored_locations:
+                # Pick randomly from top 5 candidates
+                top_candidates = scored_locations[:min(5, len(scored_locations))]
+                _, item_x, item_y = random.choice(top_candidates)
+                return (item_x, item_y)
+        
+        # Fallback: find any passable location away from edges
+        passable_locations = []
+        for y in range(2, map_size - 2):
+            for x in range(2, map_size - 2):
+                terrain = map_data[y][x]
+                if terrain.can_move_through():
+                    passable_locations.append((x, y))
+        
+        if passable_locations:
+            # Prefer center locations
+            center_x, center_y = map_size // 2, map_size // 2
+            scored = []
+            for x, y in passable_locations:
+                dist = ((x - center_x) ** 2 + (y - center_y) ** 2) ** 0.5
+                scored.append((dist, x, y))
+            scored.sort()
+            if scored:
+                _, item_x, item_y = random.choice(scored[:min(10, len(scored))])
+                return (item_x, item_y)
+        
+        # Last resort: any passable tile
+        for y in range(1, map_size - 1):
+            for x in range(1, map_size - 1):
+                if map_data[y][x].can_move_through():
+                    return (x, y)
+        
+        return None
     
     def _exit_quest_location(self):
         """Exit the quest location and return to overland map."""
@@ -2453,111 +2714,6 @@ class PlayScreen:
             return "You are a local hero"
 
 
-                    ]
-                    
-                    if is_slow_terrain:
-                        # Need 2 moves for slow terrain
-                        if caravan.pending_direction is None:
-                            # First move - start pending
-                            caravan.pending_direction = (target_x, target_y)
-                            caravan.pending_move_count = 1
-                        elif caravan.pending_direction == (target_x, target_y):
-                            # Second move in same direction - complete movement
-                            caravan.pending_move_count += 1
-                            if caravan.pending_move_count >= 2:
-                                # Complete movement
-                                caravan.x = float(target_x)
-                                caravan.y = float(target_y)
-                                caravan.path_index_to_town += 1
-                                caravan.pending_direction = None
-                                caravan.pending_move_count = 0
-                    else:
-                            # Different direction - reset and start new pending
-                            caravan.pending_direction = (target_x, target_y)
-                            caravan.pending_move_count = 1
-                        else:
-                        # Fast terrain - move immediately
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_town += 1
-                        caravan.pending_direction = None
-                        caravan.pending_move_count = 0
-            
-            elif caravan.state == CaravanState.AT_TOWN:
-                # Check if it's the next morning (hour 6)
-                if caravan.arrived_at_town_time:
-                    arrived_day, arrived_hour = caravan.arrived_at_town_time
-                    # Start return journey on the next morning (hour 6)
-                    if self.calendar.hour == 6:
-                        # Check if at least one day has passed, or if it's the same day but we arrived before 6
-                        if (self.calendar.day > arrived_day or 
-                            (self.calendar.day == arrived_day and arrived_hour < 6)):
-                            caravan.start_journey_to_village()
-            
-            elif caravan.state == CaravanState.TRAVELING_TO_VILLAGE:
-                # Get current position as integer tile coordinates
-                current_tile_x = int(caravan.x)
-                current_tile_y = int(caravan.y)
-                
-                # Check if we have a path and haven't reached the end
-                        if caravan.path_index_to_village >= len(caravan.path_to_village):
-                    # Arrived at village
-                            village_x, village_y = caravan.village.get_position()
-                            caravan.x = float(village_x)
-                            caravan.y = float(village_y)
-                            caravan.state = CaravanState.AT_VILLAGE
-                    # Remove caravan when it returns
-                            self.caravans.remove(caravan)
-                    continue
-                
-                # Get next waypoint
-                target_x, target_y = caravan.path_to_village[caravan.path_index_to_village]
-                
-                # Check if we're already at the target tile
-                if current_tile_x == target_x and current_tile_y == target_y:
-                    # Move to next waypoint
-                    caravan.path_index_to_village += 1
-                    continue
-                
-                # Check terrain at target location
-                if 0 <= target_y < self.map_height and 0 <= target_x < self.map_width:
-                    target_terrain = self.map_data[target_y][target_x]
-                    
-                    # Check if terrain requires 2 moves (hills, forest, forested_hill)
-                    is_slow_terrain = target_terrain.terrain_type in [
-                        TerrainType.HILLS, 
-                        TerrainType.FOREST, 
-                        TerrainType.FORESTED_HILL
-                    ]
-                    
-                    if is_slow_terrain:
-                        # Need 2 moves for slow terrain
-                        if caravan.pending_direction is None:
-                            # First move - start pending
-                            caravan.pending_direction = (target_x, target_y)
-                            caravan.pending_move_count = 1
-                        elif caravan.pending_direction == (target_x, target_y):
-                            # Second move in same direction - complete movement
-                            caravan.pending_move_count += 1
-                            if caravan.pending_move_count >= 2:
-                                # Complete movement
-                                caravan.x = float(target_x)
-                                caravan.y = float(target_y)
-                                caravan.path_index_to_village += 1
-                                caravan.pending_direction = None
-                                caravan.pending_move_count = 0
-                    else:
-                            # Different direction - reset and start new pending
-                            caravan.pending_direction = (target_x, target_y)
-                            caravan.pending_move_count = 1
-                        else:
-                        # Fast terrain - move immediately
-                            caravan.x = float(target_x)
-                            caravan.y = float(target_y)
-                            caravan.path_index_to_village += 1
-                        caravan.pending_direction = None
-                        caravan.pending_move_count = 0
-    
     def update(self, dt: float):
         """
         Update game state (movement animation, etc.).
@@ -2600,18 +2756,62 @@ class PlayScreen:
             # Use normal explored/visible tiles for fog of war
             self.renderer.render_map(self.quest_location_map, map_surface, quest_marker=None,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
-                                    settlements=[], explored_tiles=self.explored_tiles, visible_tiles=self.visible_tiles, caravans=[])
+                                    settlements=[], explored_tiles=self.explored_tiles, visible_tiles=self.visible_tiles, caravans=[],
+                                    is_quest_location=True)
+            
+            # Draw quest item marker if item hasn't been found
+            if self.quest_item_location and not self.current_quest.get('item_found', False):
+                item_x, item_y = self.quest_item_location
+                import sys
+                print(f"DEBUG RENDER: Quest item at ({item_x}, {item_y}), visible_tiles check: {(item_x, item_y) in self.visible_tiles}", file=sys.stderr, flush=True)
+                print(f"DEBUG RENDER: visible_tiles count: {len(self.visible_tiles)}, explored_tiles count: {len(self.explored_tiles)}", file=sys.stderr, flush=True)
+                print(f"DEBUG RENDER: Player at ({self.player_x}, {self.player_y}), camera at ({camera_x_int}, {camera_y_int})", file=sys.stderr, flush=True)
+                # Only render if the tile is visible (not darkened by fog of war)
+                if (item_x, item_y) in self.visible_tiles:
+                    # Calculate screen position
+                    screen_x = (item_x - camera_x_int) * self.tile_size
+                    screen_y = (item_y - camera_y_int) * self.tile_size
+                    import sys
+                    print(f"DEBUG RENDER: Screen position: ({screen_x}, {screen_y}), viewport: {self.map_view_width}x{self.map_view_height}", file=sys.stderr, flush=True)
+                    # Draw item marker (golden star/glow)
+                    if 0 <= screen_x < self.map_view_width and 0 <= screen_y < self.map_view_height:
+                        import sys
+                        print(f"DEBUG RENDER: Rendering quest item marker at screen ({screen_x}, {screen_y})", file=sys.stderr, flush=True)
+                        center_x = screen_x + self.tile_size // 2
+                        center_y = screen_y + self.tile_size // 2
+                        # Draw golden glow
+                        import math
+                        glow_size = self.tile_size // 2
+                        for i in range(3):
+                            alpha = 200 - i * 50
+                            glow_radius = glow_size + i * 2
+                            glow_surface = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
+                            pygame.draw.circle(glow_surface, (255, 215, 0, alpha), (glow_radius, glow_radius), glow_radius)
+                            map_surface.blit(glow_surface, (center_x - glow_radius, center_y - glow_radius), special_flags=pygame.BLEND_ALPHA_SDL2)
+                        # Draw star/pentagon
+                        star_size = self.tile_size // 3
+                        star_color = (255, 255, 0)  # Bright yellow
+                        points = []
+                        for i in range(5):
+                            angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                            px = center_x + star_size * math.cos(angle)
+                            py = center_y + star_size * math.sin(angle)
+                            points.append((px, py))
+                        pygame.draw.polygon(map_surface, star_color, points)
+                        pygame.draw.polygon(map_surface, (255, 200, 0), points, 2)  # Orange border
         else:
             # Render overland map
-        # Convert camera position to integers for rendering (tiles are discrete)
-        camera_x_int = int(self.camera_x)
-        camera_y_int = int(self.camera_y)
+            # Convert camera position to integers for rendering (tiles are discrete)
+            camera_x_int = int(self.camera_x)
+            camera_y_int = int(self.camera_y)
             
-            # Mark quest location if we have one
+            # Mark quest location if we have one (only if quest is active)
             quest_marker = None
             if self.current_quest and not self.in_quest_location:
-                quest_x, quest_y = self.current_quest['quest_coordinates']
-                quest_marker = (quest_x, quest_y)
+                quest_status = self.current_quest.get('quest_status', 'active')
+                if quest_status == 'active':
+                    quest_x, quest_y = self.current_quest['quest_coordinates']
+                    quest_marker = (quest_x, quest_y)
             
             self.renderer.render_map(self.map_data, map_surface, quest_marker=quest_marker,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
@@ -2673,7 +2873,15 @@ class PlayScreen:
         
         # Display quest status
         if self.current_quest:
-            quest_text = "Quest: Active"
+            quest_status = self.current_quest.get('quest_status', 'active')
+            if quest_status == 'item_found':
+                # Show "active, pending return to {settlement}"
+                settlement_name = self.current_quest.get('settlement_name', 'settlement')
+                quest_text = f"Quest: Active, pending return to {settlement_name}"
+            elif quest_status == 'active':
+                quest_text = "Quest: Active"
+            else:
+                quest_text = f"Quest: {quest_status.title()}"
             quest_surface = font.render(quest_text, True, (255, 200, 100))  # Orange
             self.screen.blit(quest_surface, (self.map_view_width + 10, y_pos))
         else:
@@ -2699,35 +2907,106 @@ class PlayScreen:
             settlement = self.current_settlement
             settlement_name = settlement.name if settlement.name else "Unnamed"
             
-            # Settlement name header
-            settlement_title = title_font.render(settlement_name, True, (255, 255, 0))  # Yellow
-            content_surface.blit(settlement_title, (10, y_offset))
-            y_offset += 30
-            
             # Get worldbuilding data
             wb_data = self._find_settlement_worldbuilding_data(settlement)
             
-            # Debug: Print worldbuilding data lookup
-            if not wb_data:
-                print(f"Debug: No worldbuilding data found for {settlement.name} (type: {settlement.settlement_type})")
-                if self.worldbuilding_data:
-                    print(f"Debug: Worldbuilding data exists with {len(self.worldbuilding_data)} top-level keys")
-                else:
-                    print("Debug: No worldbuilding data loaded at all")
+            # Build formatted description based on settlement type
+            desc_font = pygame.font.Font(None, 22)
+            formatted_lines = []
             
-            # Display description if available
+            # Settlement name (header)
+            formatted_lines.append((settlement_name, title_font, (255, 255, 0)))  # Yellow
+            
+            # Get description (tone and flavor)
             if wb_data and 'description' in wb_data:
-                desc_text = wb_data['description']
-                # Word wrap description
-                desc_font = pygame.font.Font(None, 22)
-                words = desc_text.split()
+                formatted_lines.append((wb_data['description'], desc_font, (200, 200, 200)))
+            
+            # Get leader info
+            leader_name = "Unknown Leader"
+            leader_bio = ""
+            if wb_data and 'leader' in wb_data:
+                leader = wb_data['leader']
+                if 'name' in leader:
+                    leader_name = leader['name']
+                if 'biography' in leader:
+                    leader_bio = leader['biography']
+            
+            # Format based on settlement type
+            if settlement.settlement_type == SettlementType.VILLAGE:
+                # Village format: "Their leader is {leader name}, who {leader description}."
+                leader_text = f"Their leader is {leader_name}, who {leader_bio}." if leader_bio else f"Their leader is {leader_name}."
+                formatted_lines.append((leader_text, desc_font, (200, 200, 200)))
+                
+                # Resource and town relationship
+                resource = settlement.supplies_resource or "Unknown"
+                town_name = settlement.vassal_to.name if settlement.vassal_to and settlement.vassal_to.name else "Unknown"
+                resource_text = f"This village sends {resource} to {town_name} in return for protection."
+                formatted_lines.append((resource_text, desc_font, (200, 200, 200)))
+            
+            elif settlement.settlement_type == SettlementType.TOWN:
+                # Town format: "Their leader is {leader name}, who {leader description}. {leader name} kneels to {city leader} of {city name} and sends trade goods as tribute (or "kneels to no one" if it's a free city.)"
+                leader_text = f"Their leader is {leader_name}, who {leader_bio}." if leader_bio else f"Their leader is {leader_name}."
+                formatted_lines.append((leader_text, desc_font, (200, 200, 200)))
+                
+                # City relationship
+                if settlement.vassal_to and settlement.vassal_to.settlement_type == SettlementType.CITY:
+                    city = settlement.vassal_to
+                    city_name = city.name if city.name else "Unknown"
+                    # Get city leader name
+                    city_wb_data = self._find_settlement_worldbuilding_data(city)
+                    city_leader_name = "Unknown Leader"
+                    if city_wb_data and 'leader' in city_wb_data and 'name' in city_wb_data['leader']:
+                        city_leader_name = city_wb_data['leader']['name']
+                    kneel_text = f"{leader_name} kneels to {city_leader_name} of {city_name} and sends trade goods as tribute."
+                else:
+                    kneel_text = f"{leader_name} kneels to no one."
+                formatted_lines.append((kneel_text, desc_font, (200, 200, 200)))
+                
+                # Village resources
+                if settlement.vassal_villages:
+                    village_list = []
+                    for village in settlement.vassal_villages:
+                        village_name = village.name if village.name else "Unnamed"
+                        resource = village.supplies_resource or "Unknown"
+                        village_list.append(f"{village_name} ({resource})")
+                    villages_text = f"This town receives resources from several villages: {', '.join(village_list)}."
+                    formatted_lines.append((villages_text, desc_font, (200, 200, 200)))
+            
+            elif settlement.settlement_type == SettlementType.CITY:
+                # City format: "Their leader is {leader name}, who {description}."
+                leader_text = f"Their leader is {leader_name}, who {leader_bio}." if leader_bio else f"Their leader is {leader_name}."
+                formatted_lines.append((leader_text, desc_font, (200, 200, 200)))
+                
+                # Towns under yoke
+                if settlement.vassal_towns:
+                    town_list = []
+                    for town in settlement.vassal_towns:
+                        town_name = town.name if town.name else "Unnamed"
+                        town_list.append(town_name)
+                    towns_text = f"This city has the following towns under its yoke, and extracts tribute in trade goods from each: {', '.join(town_list)}."
+                    formatted_lines.append((towns_text, desc_font, (200, 200, 200)))
+            
+            # Renown statement (without number)
+            settlement_key = (settlement.x, settlement.y)
+            if not hasattr(self, 'settlement_renown'):
+                self.settlement_renown = {}
+            if settlement_key not in self.settlement_renown:
+                self.settlement_renown[settlement_key] = 0
+            renown = max(0, self.settlement_renown.get(settlement_key, 0))
+            renown_description = self._get_renown_description(renown)
+            formatted_lines.append((renown_description, desc_font, (255, 255, 150)))  # Yellow
+            
+            # Render all formatted lines with word wrapping
+            for line_text, line_font, line_color in formatted_lines:
+                # Word wrap the line
+                words = line_text.split()
                 lines = []
                 current_line = []
                 current_width = 0
                 max_width = self.status_width - 30
                 
                 for word in words:
-                    word_surface = desc_font.render(word + ' ', True, (200, 200, 200))
+                    word_surface = line_font.render(word + ' ', True, line_color)
                     word_width = word_surface.get_width()
                     if current_width + word_width > max_width and current_line:
                         lines.append(' '.join(current_line))
@@ -2740,145 +3019,12 @@ class PlayScreen:
                 if current_line:
                     lines.append(' '.join(current_line))
                 
+                # Render each wrapped line
                 for line in lines:
-                    desc_surface = desc_font.render(line, True, (200, 200, 200))
-                    content_surface.blit(desc_surface, (10, y_offset))
-                    y_offset += 22
-                y_offset += 10
-            
-            # Display leader info if available
-            if wb_data and 'leader' in wb_data:
-                leader = wb_data['leader']
-                leader_font = pygame.font.Font(None, 24)
-                
-                if 'name' in leader:
-                    leader_name_text = f"Leader: {leader['name']}"
-                    leader_name_surface = leader_font.render(leader_name_text, True, (255, 200, 100))  # Orange
-                    content_surface.blit(leader_name_surface, (10, y_offset))
-                    y_offset += 28
-                
-                if 'biography' in leader:
-                    bio_text = leader['biography']
-                    # Word wrap biography
-                    bio_font = pygame.font.Font(None, 22)
-                    words = bio_text.split()
-                    lines = []
-                    current_line = []
-                    current_width = 0
-                    max_width = self.status_width - 30
-                    
-                    for word in words:
-                        word_surface = bio_font.render(word + ' ', True, (180, 180, 255))
-                        word_width = word_surface.get_width()
-                        if current_width + word_width > max_width and current_line:
-                            lines.append(' '.join(current_line))
-                            current_line = [word]
-                            current_width = word_width
-                        else:
-                            current_line.append(word)
-                            current_width += word_width
-                    
-                    if current_line:
-                        lines.append(' '.join(current_line))
-                    
-                    for line in lines:
-                        bio_surface = bio_font.render(line, True, (180, 180, 255))
-                        content_surface.blit(bio_surface, (10, y_offset))
-                        y_offset += 22
-                    y_offset += 10
-            
-            # Display renown with this settlement
-            settlement_key = (settlement.x, settlement.y)
-            # Handle legacy saves - ensure renown exists
-            if not hasattr(self, 'settlement_renown'):
-                self.settlement_renown = {}
-            if settlement_key not in self.settlement_renown:
-                self.settlement_renown[settlement_key] = 0
-            renown = max(0, self.settlement_renown.get(settlement_key, 0))  # Ensure never negative
-            renown_description = self._get_renown_description(renown)
-            renown_text = f"Renown: {renown} - {renown_description}"
-            renown_surface = font.render(renown_text, True, (255, 255, 150))  # Yellow
-            content_surface.blit(renown_surface, (10, y_offset))
-            y_offset += 30
-            
-            # Display settlement type-specific info
-            if settlement.settlement_type == SettlementType.VILLAGE:
-                # Village: Show resource and town relationship
-                resource = settlement.supplies_resource or "Unknown"
-                town_name = settlement.vassal_to.name if settlement.vassal_to else "Unknown"
-                village_text = f"Sends {resource} to {town_name} in return for protection."
-                # Word wrap village text if needed
-                village_lines = wrap_text(village_text, font, self.status_width - 30)
-                for line in village_lines:
-                    village_surface = font.render(line, True, (200, 255, 200))  # Light green
-                    content_surface.blit(village_surface, (10, y_offset))
-                    y_offset += 28
-                y_offset += 2  # Small spacing after wrapped text
-            
-            elif settlement.settlement_type == SettlementType.TOWN:
-                # Town: Show vassal relationships, resources, and trade goods
-                # Vassal relationships
-                if settlement.vassal_to:
-                    liege_name = settlement.vassal_to.name if settlement.vassal_to.name else "Unnamed"
-                    liege_text = f"Vassal to: {liege_name}"
-                    liege_surface = font.render(liege_text, True, (255, 200, 100))  # Orange
-                    content_surface.blit(liege_surface, (10, y_offset))
-                    y_offset += 25
-                else:
-                    free_text = "Status: Independent"
-                    free_surface = font.render(free_text, True, (150, 150, 150))  # Gray
-                    content_surface.blit(free_surface, (10, y_offset))
-                    y_offset += 25
-                
-                # Vassal villages
-                if settlement.vassal_villages:
-                    vassal_count = len(settlement.vassal_villages)
-                    vassal_text = f"Vassal villages: {vassal_count}"
-                    vassal_surface = font.render(vassal_text, True, (200, 200, 200))
-                    content_surface.blit(vassal_surface, (10, y_offset))
-                    y_offset += 25
-                
-                # Resources
-                resources_text = "Resources:"
-                resources_surface = font.render(resources_text, True, (200, 200, 255))
-                content_surface.blit(resources_surface, (10, y_offset))
-                y_offset += 25
-                
-                for resource_name, amount in settlement.resources.items():
-                    resource_text = f"  {resource_name}: {amount}"
-                    resource_surface = font.render(resource_text, True, (180, 180, 255))
-                    content_surface.blit(resource_surface, (10, y_offset))
-                    y_offset += 20
-                
-                # Trade goods
-                trade_text = f"Trade goods: {settlement.trade_goods}"
-                # Word wrap trade text if needed
-                trade_lines = wrap_text(trade_text, font, self.status_width - 30)
-                for line in trade_lines:
-                    trade_surface = font.render(line, True, (255, 215, 0))  # Gold
-                    content_surface.blit(trade_surface, (10, y_offset))
-                    y_offset += 28
-                y_offset += 2  # Small spacing after wrapped text
-            
-            elif settlement.settlement_type == SettlementType.CITY:
-                # City: Show vassal relationships and trade goods
-                # Vassal towns
-                if settlement.vassal_towns:
-                    vassal_count = len(settlement.vassal_towns)
-                    vassal_text = f"Vassal towns: {vassal_count}"
-                    vassal_surface = font.render(vassal_text, True, (200, 200, 200))
-                    content_surface.blit(vassal_surface, (10, y_offset))
-                    y_offset += 25
-                
-                # Trade goods
-                trade_text = f"Trade goods: {settlement.trade_goods}"
-                # Word wrap trade text if needed
-                trade_lines = wrap_text(trade_text, font, self.status_width - 30)
-                for line in trade_lines:
-                    trade_surface = font.render(line, True, (255, 215, 0))  # Gold
-                    content_surface.blit(trade_surface, (10, y_offset))
-                    y_offset += 28
-                y_offset += 2  # Small spacing after wrapped text
+                    line_surface = line_font.render(line, True, line_color)
+                    content_surface.blit(line_surface, (10, y_offset))
+                    y_offset += 22 if line_font == desc_font else 30
+                y_offset += 5  # Small spacing between sections
             
             # Update max scroll based on content height
             max_scroll = max(0, y_offset + self.status_scroll_offset - status_content_height)
@@ -2891,12 +3037,12 @@ class PlayScreen:
         
         # Messages (scrollable, show most recent) - appear after settlement info or at y_offset=100 if no settlement
         if not self.current_settlement:
-        y_offset = 100
-        for message in self.status_messages[-12:]:  # Show last 12 messages (less space due to date and terrain)
-            text_surface = font.render(message, True, (200, 200, 200))
-            if y_offset + text_surface.get_height() < self.status_height - 10:
-                self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
-                y_offset += 25
+            y_offset = 100
+            for message in self.status_messages[-12:]:  # Show last 12 messages (less space due to date and terrain)
+                text_surface = font.render(message, True, (200, 200, 200))
+                if y_offset + text_surface.get_height() < self.status_height - 10:
+                    self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
+                    y_offset += 25
         
         # Draw command/results area (bottom 1x3) - terminal style
         command_rect = pygame.Rect(0, self.map_view_height, self.command_width, self.command_height)
@@ -2967,90 +3113,6 @@ class PlayScreen:
                     self.screen.blit(prompt_surface, (10, y_offset))
         
         pygame.display.flip()
-    
-    def _enter_quest_location(self, approach_direction: str = None):
-        """
-        Enter the quest location (zoomed-in map).
-        
-        Args:
-            approach_direction: Direction player is approaching from ('north', 'south', 'east', 'west')
-                                If None, will try to determine from quest_direction (fallback)
-        """
-        if not self.current_quest:
-            return
-        
-        quest_x, quest_y = self.current_quest['quest_coordinates']
-        self.in_quest_location = True
-        
-        # Determine approach direction
-        if approach_direction is None:
-            # Fallback: try to determine from player's position relative to quest location
-            # This shouldn't normally happen, but handle it gracefully
-            quest_dir = self.current_quest.get('quest_direction', 'north')
-            # Convert to cardinal if needed (should already be cardinal, but just in case)
-            if quest_dir in ['north', 'south', 'east', 'west']:
-                # Invert: if quest is north of settlement, player approaches from south
-                direction_map = {'north': 'south', 'south': 'north', 'east': 'west', 'west': 'east'}
-                approach_direction = direction_map.get(quest_dir, 'south')
-            else:
-                approach_direction = 'south'  # Default fallback
-        
-        # Generate quest location map to fill the entire viewport
-        # Calculate size based on viewport dimensions
-        viewport_width_tiles = self.map_view_width // self.tile_size
-        viewport_height_tiles = self.map_view_height // self.tile_size
-        # Use the larger dimension to ensure it fills the viewport
-        # This ensures the map is at least as large as the viewport in both dimensions
-        self.quest_location_size = max(viewport_width_tiles, viewport_height_tiles)
-        
-        # Get terrain type and description from quest location
-        location_terrain_type_str = self.current_quest.get('location_terrain_type', 'grassland')
-        location_description = self.current_quest.get('location_description', 'location')
-        
-        # Generate quest location map based on description
-        from quest_location_maps import generate_quest_location_map
-        self.quest_location_map = generate_quest_location_map(
-            location_description, 
-            location_terrain_type_str, 
-            self.quest_location_size
-        )
-        
-        # Set player position based on approach direction (cardinal directions only)
-        # approach_direction is the direction the player was MOVING when they entered
-        # If player was moving north, they're approaching from south → spawn at bottom (south edge)
-        # If player was moving south, they're approaching from north → spawn at top (north edge)
-        # If player was moving east, they're approaching from west → spawn at left (west edge)
-        # If player was moving west, they're approaching from east → spawn at right (east edge)
-        approach = approach_direction  # Use the actual movement direction
-        
-        if approach == 'north':
-            # Traveling north (approaching from south), spawn at bottom (south edge), centered horizontally
-            self.player_x = self.quest_location_size // 2
-            self.player_y = self.quest_location_size - 1
-        elif approach == 'south':
-            # Traveling south (approaching from north), spawn at top (north edge), centered horizontally
-            self.player_x = self.quest_location_size // 2
-            self.player_y = 0
-        elif approach == 'east':
-            # Traveling east (approaching from west), spawn on left side (west edge), centered vertically
-            self.player_x = 0
-            self.player_y = self.quest_location_size // 2
-        elif approach == 'west':
-            # Traveling west (approaching from east), spawn on right side (east edge), centered vertically
-            self.player_x = self.quest_location_size - 1
-            self.player_y = self.quest_location_size // 2
-        else:
-            # Fallback: default to bottom (south edge)
-            self.player_x = self.quest_location_size // 2
-            self.player_y = self.quest_location_size - 1
-        
-        self.quest_location_approach_direction = approach
-        
-        # Mark player position as explored and update visibility
-        self.explored_tiles.add((self.player_x, self.player_y))
-        self._update_visibility()
-        
-        self._update_camera()
     
     def _exit_quest_location(self):
         """Exit the quest location and return to overland map."""

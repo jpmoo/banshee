@@ -188,11 +188,24 @@ def detect_structures(description: str) -> List[Tuple[str, str]]:
     structures = []
     
     # Standing stones (individual separate stones)
-    if re.search(r'\bstanding\s+stone', description_lower):
+    # Check for "standing stone" or "standing stones" first
+    if re.search(r'\bstanding\s+stones?\b', description_lower):
         structures.append(('standing_stone', 'standing_stones'))
+    # Check for menhir/menhirs (should be rendered as standing stones)
+    elif re.search(r'\bmenhirs?\b', description_lower):
+        structures.append(('menhir', 'standing_stones'))
+    # Check for monolith/monoliths
+    elif re.search(r'\bmonoliths?\b', description_lower):
+        structures.append(('monolith', 'standing_stones'))
+    # Check for megalith/megaliths
+    elif re.search(r'\bmegaliths?\b', description_lower):
+        structures.append(('megalith', 'standing_stones'))
     
     # Stone circles (individual stones in a circle)
-    if re.search(r'\bstone\s+circle\b', description_lower) or re.search(r'\bring\s+of\s+stones?\b', description_lower):
+    if re.search(r'\bstone\s+circle\b', description_lower) or \
+       re.search(r'\bring\s+of\s+stones?\b', description_lower) or \
+       re.search(r'\bcircle\s+of\s+stones?\b', description_lower) or \
+       re.search(r'\bhenge\b', description_lower):
         structures.append(('stone_circle', 'stone_circle'))
     
     # Boulders and natural rocks (use hill tiles)
@@ -236,8 +249,9 @@ def detect_structures(description: str) -> List[Tuple[str, str]]:
             break
     
     # Point structures (non-stone)
+    # Note: menhir/menhirs are now handled as standing_stones above
     point_patterns = [
-        r'\bmenhir\b', r'\bstatue\b', r'\bcross\b',
+        r'\bstatue\b', r'\bcross\b',
         r'\bthrone\b', r'\bobelisk\b', r'\bcolumn\b', r'\bfinger\b', r'\bpointing\b',
         r'\bidol\b', r'\bcarving\b', r'\bface\b', r'\bfaces\b', r'\bmarker\b',
         r'\bmarkers\b', r'\bmilestone\b', r'\bmilestones\b', r'\bpost\b', r'\bposts\b'
@@ -536,8 +550,18 @@ def generate_map_with_structures(description: str, location_terrain_type: str, s
         
         elif structure_type == 'standing_stones':
             # Draw individual separate standing stones (mountain tiles)
+            # Handles: standing stones, menhirs, monoliths, megaliths
             desc_lower = description.lower()
-            if 'pair' in desc_lower or 'two' in desc_lower:
+            # Check for multiple menhirs (plural) or "dotted with" suggests multiple
+            if 'menhirs' in desc_lower or 'dotted' in desc_lower or 'toppled' in desc_lower:
+                # Multiple standing stones scattered
+                num_stones = random.randint(3, 8)
+                for _ in range(num_stones):
+                    stone_x = random.randint(2, size - 3)
+                    stone_y = random.randint(2, size - 3)
+                    if 1 <= stone_x < size - 1 and 1 <= stone_y < size - 1:
+                        map_data[stone_y][stone_x] = Terrain(TerrainType.MOUNTAIN)
+            elif 'pair' in desc_lower or 'two' in desc_lower:
                 # Two standing stones (never on edges)
                 if 1 <= center_x < size - 1 and 1 <= center_y < size - 1:
                     map_data[center_y][center_x] = Terrain(TerrainType.MOUNTAIN)
