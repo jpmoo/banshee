@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+
+  <!-- Base shadow -->
+  <ellipse cx="128" cy="228" rx="40" ry="10" fill="#000000" opacity="0.2"/>
+
+  <!-- Legs -->
+  <path d="M118 170 L110 220" stroke="#4b3a26" stroke-width="8" stroke-linecap="round"/>
+  <path d="M138 170 L146 220" stroke="#4b3a26" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- Torso / armor -->
+  <rect x="112" y="110" width="32" height="60" rx="10" ry="10"
+        fill="#8b5b2b" stroke="#3e2a18" stroke-width="4"/>
+
+  <!-- Head -->
+  <circle cx="128" cy="90" r="14"
+          fill="#f5d5a4" stroke="#3e2a18" stroke-width="3"/>
+
+  <!-- Shoulders / cloak -->
+  <path d="M88 110 Q128 150 168 110 Q148 100 108 100 Z"
+        fill="#d27f36" stroke="#4b3a26" stroke-width="3"/>
+
+  <!-- Shield (left hand) -->
+  <ellipse cx="92" cy="150" rx="16" ry="24"
+           fill="#7b6b5a" stroke="#3b2f24" stroke-width="3"/>
+  <circle cx="92" cy="150" r="5" fill="#c9b678" stroke="#3b2f24" stroke-width="2"/>
+
+  <!-- Spear (right hand) -->
+  <line x1="164" y1="100" x2="164" y2="220"
+        stroke="#c9b678" stroke-width="5" stroke-linecap="round"/>
+  <polygon points="164,80 170,100 158,100"
+           fill="#3b2f24" stroke="#3b2f24" stroke-width="2"/>
+
+  <!-- Belt -->
+  <rect x="112" y="145" width="32" height="6"
+        fill="#3b2f24"/>
+
+</svg>

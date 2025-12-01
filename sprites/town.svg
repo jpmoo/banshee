@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+
+  <!-- Outer town wall -->
+  <rect
+    x="86" y="86" width="340" height="340"
+    rx="30" ry="30"
+    fill="#d3d9b0"
+    stroke="#4b3a26"
+    stroke-width="10"
+  />
+
+  <!-- Main north-south road -->
+  <rect
+    x="245" y="86" width="22" height="340"
+    fill="#bfa27b"
+  />
+
+  <!-- Main east-west road -->
+  <rect
+    x="86" y="245" width="340" height="22"
+    fill="#bfa27b"
+  />
+
+  <!-- Central market square -->
+  <rect
+    x="210" y="210" width="92" height="92"
+    fill="#d7c08a"
+    stroke="#4b3a26"
+    stroke-width="4"
+  />
+
+  <!-- Major buildings (guild halls, chapel, etc.) -->
+  <rect x="130" y="130" width="40" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="3"/>
+  <rect x="340" y="130" width="40" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="3"/>
+  <rect x="130" y="355" width="40" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="3"/>
+  <rect x="340" y="355" width="40" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="3"/>
+
+  <!-- Houses along the main roads -->
+  <rect x="190" y="110" width="25" height="15" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+  <rect x="300" y="110" width="25" height="15" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+  <rect x="190" y="385" width="25" height="15" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+  <rect x="300" y="385" width="25" height="15" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+  <rect x="110" y="190" width="15" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+  <rect x="110" y="300" width="15" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+  <rect x="385" y="190" width="15" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+  <rect x="385" y="300" width="15" height="25" fill="#c2a36c" stroke="#4b3a26" stroke-width="2"/>
+
+  <!-- Town gate (south) -->
+  <rect
+    x="240" y="426" width="32" height="20"
+    fill="#4b3a26"
+  />
+
+  <!-- Trees for natural accent -->
+  <circle cx="115" cy="115" r="10" fill="#3f6b3a" stroke="#1f3b1c" stroke-width="2"/>
+  <circle cx="397" cy="115" r="10" fill="#3f6b3a" stroke="#1f3b1c" stroke-width="2"/>
+  <circle cx="115" cy="397" r="10" fill="#3f6b3a" stroke="#1f3b1c" stroke-width="2"/>
+  <circle cx="397" cy="397" r="10" fill="#3f6b3a" stroke="#1f3b1c" stroke-width="2"/>
+
+</svg>

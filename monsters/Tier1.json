@@ -1,0 +1,86 @@
+[
+  {
+    "name": "Banshee Wisp",
+    "hit_points": 6,
+    "damage": 1,
+    "image": "BansheeWisp.png",
+    "description": "A faint echo of a true banshee, this ghostly light drifts above barrows and ruins. Its voice is a whisper of sorrow that chills the heart but seldom kills outright. It feeds on fear, flickering brighter with each shiver it draws from the living. Harmless alone, but deadly when its kin gather."
+  },
+  {
+    "name": "Sluagh Hatchling",
+    "hit_points": 7,
+    "damage": 2,
+    "image": "SluaghHatchling.png",
+    "description": "A fragment of a tormented soul that flutters like a black moth. The hatchling drifts between worlds, seeking warmth and life to fill its emptiness. When cornered, it lashes out with ghostly wings that sap vitality. Destroying one too quickly risks drawing the attention of the full Sluagh host."
+  },
+  {
+    "name": "Corrach",
+    "hit_points": 8,
+    "damage": 2,
+    "image": "Corrach.png",
+    "description": "A goblin of cairns and tombs, small but spiteful. The Corrach hides among stones and waits for travelers to pass before stealing from their packs or cutting their straps. It attacks in bursts of fury, driven by greed and hunger for mischief. Many a lost heirloom bears its claw marks."
+  },
+  {
+    "name": "Tobarling",
+    "hit_points": 9,
+    "damage": 2,
+    "image": "Tobarling.png",
+    "description": "A water sprite that takes the form of a hollow-eyed child. Bound to wells and springs, it calls to the thirsty with a voice both sweet and sad. Those who answer find only ripples where its reflection smiled. Tobarlings fight with the cold of deep water and hands like drowning weeds."
+  },
+  {
+    "name": "Cromlin",
+    "hit_points": 10,
+    "damage": 3,
+    "image": "Cromlin.png",
+    "description": "These small, leathery wall-dwellers thrive in the cracks of old stone. Their laughter echoes through ruins at night as they gnaw mortar and whisper mockery. Though cowardly, a cornered Cromlin will fling pebbles or collapse walls with uncanny strength. They vanish into shadow when the tide turns."
+  },
+  {
+    "name": "Bograith",
+    "hit_points": 11,
+    "damage": 3,
+    "image": "Bograith.png",
+    "description": "A half-formed spirit of the bog, stitched from mud, reeds, and bones. The Bograith drags itself through mire, leaving behind a trail of decay. Its grip pulls victims into the earth as it mutters in a tongue long drowned. Fire is its only true fear."
+  },
+  {
+    "name": "Drumlark",
+    "hit_points": 11,
+    "damage": 3,
+    "image": "Drumlark.png",
+    "description": "A crow-beast with an unnerving, almost human face. It mimics voices to lure travelers from the path and feasts on confusion more than flesh. When threatened, it screeches like a dozen dying birds. Villagers say that each lie spoken in its presence gives it a new feather."
+  },
+  {
+    "name": "Shee Wight",
+    "hit_points": 12,
+    "damage": 3,
+    "image": "SheeWight.png",
+    "description": "A pale fae guardian left behind by its court, bound to an ancient mound. Its touch drains warmth and courage from those who trespass. The Shee Wight moves with funereal grace, guarding relics no mortal remembers. Only iron or sunlight can end its vigil."
+  },
+  {
+    "name": "Spriggan",
+    "hit_points": 13,
+    "damage": 4,
+    "image": "Spriggan.png",
+    "description": "Twisted forest fae that grow huge when angered. Spriggans guard the treasures of the Fair Folk and delight in tormenting the greedy. Their bark-skin hides thorns that bleed sap like blood. Even in death, their laughter echoes through the roots of trees."
+  },
+  {
+    "name": "Mire Wolf",
+    "hit_points": 14,
+    "damage": 4,
+    "image": "MireWolf.png",
+    "description": "Born from peat and decay, this wolf is sculpted from mud and moss. Its eyes glow faint green in the fog and its howl sounds like a wind through hollow reeds. Each wound it suffers seeps black water. Unless burned, it reforms at nightfall near its lair."
+  },
+  {
+    "name": "Fae Hound Pup",
+    "hit_points": 14,
+    "damage": 5,
+    "image": "FaeHoundPup.png",
+    "description": "The youngest of the spectral hounds that hunt between worlds. Its fur shifts from mist to shadow as it moves. Though small, its bite carries the chill of the Otherworld. When it howls, nearby lights flicker as though the veil thins."
+  },
+  {
+    "name": "Wild Boar",
+    "hit_points": 15,
+    "damage": 5,
+    "image": "WildBoar.png",
+    "description": "A massive, scarred beast revered and feared by hunters. Its tusks gleam like polished bone and its charge can shatter shields. Wild boars are omens of battle and blood. Some say the forest itself lends them strength when they fight to the death."
+  }
+]

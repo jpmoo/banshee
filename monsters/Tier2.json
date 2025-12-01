@@ -1,0 +1,65 @@
+[
+  {
+    "name": "Redcap",
+    "hit_points": 15,
+    "damage": 6,
+    "image": "Redcap.png",
+    "description": "A murderous goblin that soaks its cap in the blood of victims to keep it crimson. Found in old ruins and battlefields, it moves with terrifying speed despite its age. Redcaps fight with iron pikes and relish the scent of fear. When their caps dry, they wither to dust."
+  },
+  {
+    "name": "Dullahan",
+    "hit_points": 16,
+    "damage": 7,
+    "image": "Dullahan.png",
+    "description": "A headless rider who carries his own skull, glowing with unholy light. The Dullahan rides forth on moonless nights to claim souls marked by fate. Whips of human spine and horses shrouded in mist make his passage dreadful. Doors and eyes alike close at his approach."
+  },
+  {
+    "name": "Kelpie",
+    "hit_points": 17,
+    "damage": 7,
+    "image": "Kelpie.png",
+    "description": "A shapeshifting water spirit that appears as a sleek black horse. It lures riders onto its back, then plunges into the depths. The Kelpie’s hide is adhesive; only a blade of iron can sever it. In its true form, its eyes gleam like wet stones beneath the current."
+  },
+  {
+    "name": "Fir Bolg Raider",
+    "hit_points": 18,
+    "damage": 7,
+    "image": "FirBolgRaider.png",
+    "description": "Descendants of a conquered race who linger in the hills, the Fir Bolg are strong and bitter. Raiders carry massive clubs and wear crude armor of bone and bark. Their shouts echo across valleys like thunder. Few can match their endurance in battle."
+  },
+  {
+    "name": "Barrow Wight",
+    "hit_points": 19,
+    "damage": 8,
+    "image": "BarrowWight.png",
+    "description": "Undead guardians of ancient tombs, Barrow Wights are armored in rust and bound by oath. Their breath chills torches and their touch drains life. Some still remember their names and weep as they strike. To disturb their barrows is to awaken a grudge centuries old."
+  },
+  {
+    "name": "Púca",
+    "hit_points": 20,
+    "damage": 8,
+    "image": "Puca.png",
+    "description": "A mischievous shapeshifter that alternates between trickster and terror. The Púca delights in confusing travelers with illusions of gold and safety. When provoked, it becomes a dark stallion with burning eyes. Those who tame one may ride it between worlds."
+  },
+  {
+    "name": "Morrígan Shade",
+    "hit_points": 22,
+    "damage": 9,
+    "image": "MorriganShade.png",
+    "description": "A spectral echo of the battle goddess herself. The Morrígan Shade appears before great strife, whispering doom into the ears of warriors. Her presence turns courage into frenzy and fear alike. To face her is to see your death reflected in her eyes."
+  },
+  {
+    "name": "Cŵn Annwn",
+    "hit_points": 23,
+    "damage": 9,
+    "image": "CwnAnnwn.png",
+    "description": "The hounds of the Otherworld, white as snow with red ears that gleam like embers. Their howls signal a coming death, though they hunt not for food but for souls. When they run, mists rise to hide the doomed. Even the Fair Folk bow when they pass."
+  },
+  {
+    "name": "Crom Cruach Idol",
+    "hit_points": 25,
+    "damage": 10,
+    "image": "CromCruachIdol.png",
+    "description": "A corrupted stone effigy of an ancient god, animated by blood and fear. Its eyes are filled with molten gold that never cools. The Crom Cruach Idol crushes foes with its massive arms of stone and demands sacrifice to sleep again. Each death renews its strength."
+  }
+]

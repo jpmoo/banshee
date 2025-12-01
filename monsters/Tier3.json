@@ -1,0 +1,86 @@
+[
+  {
+    "name": "Fomorian Brute",
+    "hit_points": 25,
+    "damage": 11,
+    "image": "FomorianBrute.png",
+    "description": "A massive, misshapen giant of the sea, born of chaos and shadow. The Fomorian Brute drags chains of corroded bronze and reeks of salt and rot. Its single eye burns with hatred for the sunlit world. When it strikes, the ground trembles like a storm tide."
+  },
+  {
+    "name": "Bodach of the Moor",
+    "hit_points": 26,
+    "damage": 11,
+    "image": "BodachOfTheMoor.png",
+    "description": "An ancient shadow that takes the form of a withered man wrapped in fog. The Bodach slips through cracks and doorways, stealing breath and memory from sleepers. It cannot be killed, only banished by fire or dawn. The croak of its voice heralds despair."
+  },
+  {
+    "name": "Nuckelavee Champion",
+    "hit_points": 27,
+    "damage": 12,
+    "image": "NuckelaveeChampion.png",
+    "description": "A more powerful form of the sea demon, its rider and horse fused in glistening, skinless horror. Steam rises where its breath touches earth. It brings plague to crops and beasts alike. Even the ocean recoils when it returns to its lair."
+  },
+  {
+    "name": "Each-Uisge",
+    "hit_points": 28,
+    "damage": 12,
+    "image": "EachUisge.png",
+    "description": "The water horse of the northern lochs, stronger and crueler than the Kelpie. Its hide sticks to any who mount it, and its eyes gleam with mirthless hunger. When it dives, bones rise to the surface hours later. Only salt or iron can break its spell."
+  },
+  {
+    "name": "Cailleach Revenant",
+    "hit_points": 29,
+    "damage": 12,
+    "image": "CailleachRevenant.png",
+    "description": "An ancient crone spirit reborn from the snows of forgotten winters. Her staff freezes the earth, her laughter splits trees. The Cailleach Revenant walks between seasons, sowing death where spring dares to bloom. Only the first light of dawn can pierce her frost."
+  },
+  {
+    "name": "Barghest Alpha",
+    "hit_points": 30,
+    "damage": 13,
+    "image": "BarghestAlpha.png",
+    "description": "A monstrous black hound that leads spectral packs through storm and graveyard alike. Its eyes burn blue with hunger for the living. The Barghest Alpha’s howl curdles courage and summons others of its kind. When it kills, the slain rise to hunt beside it."
+  },
+  {
+    "name": "Dire Spriggan",
+    "hit_points": 31,
+    "damage": 13,
+    "image": "DireSpriggan.png",
+    "description": "An elder of the forest fae, warped by centuries of hate and blood. Its bark-skin is as hard as stone, and roots twist from its limbs like serpents. The Dire Spriggan guards cursed groves with jealousy unmatched. Its laughter shakes the leaves from trees."
+  },
+  {
+    "name": "Cairn Lord",
+    "hit_points": 32,
+    "damage": 13,
+    "image": "CairnLord.png",
+    "description": "A towering guardian made of piled stones and bound souls. The Cairn Lord awakens when the balance of the land is broken. Its blows shatter bone and memory alike. Destroying its body only scatters the spirits that form it—each seeking vengeance anew."
+  },
+  {
+    "name": "Bean Nighe",
+    "hit_points": 33,
+    "damage": 14,
+    "image": "BeanNighe.png",
+    "description": "The washerwoman of fate, eternally cleansing the garments of those about to die. Pale and bent, with webbed fingers and unblinking eyes, she keens softly as she works. To hear her song is to know your end is near. To interrupt her is to hasten it."
+  },
+  {
+    "name": "Cernunnic Stag",
+    "hit_points": 34,
+    "damage": 14,
+    "image": "CernunnicStag.png",
+    "description": "A colossal stag crowned with a rack of horns like a tree of bone. Its eyes gleam with divine intelligence, and its hooves spark fire when they strike the ground. The Cernunnic Stag is guardian and executioner both, defending sacred groves from mortal trespass."
+  },
+  {
+    "name": "Morrígan’s Harbinger",
+    "hit_points": 35,
+    "damage": 15,
+    "image": "MorrigansHarbinger.png",
+    "description": "A war-spirit clad in black feathers and blood-red armor, said to precede great slaughter. It moves with the grace of death itself, wielding a spear of shadow. Wherever it passes, the crows feast. Only those who defy fate itself may stand against it."
+  },
+  {
+    "name": "Fomorian Warpriest",
+    "hit_points": 35,
+    "damage": 15,
+    "image": "FomorianWarpriest.png",
+    "description": "The cruel priests of the Fomor, twisted by ancient sea-magic. Their flesh is scaled and scarred, their voices booming with power drawn from drowned gods. They wield tides and storms as weapons, crushing mortals beneath waves of wrath. Their faith is suffering."
+  }
+]

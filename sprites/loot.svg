@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+
+  <!-- Chest body -->
+  <rect
+    x="60"
+    y="90"
+    width="136"
+    height="76"
+    rx="8"
+    ry="8"
+    fill="#8b5b2b"
+    stroke="#3e2a18"
+    stroke-width="6"
+  />
+
+  <!-- Lid (slightly raised / curved) -->
+  <rect
+    x="60"
+    y="60"
+    width="136"
+    height="40"
+    rx="10"
+    ry="10"
+    fill="#a26a33"
+    stroke="#3e2a18"
+    stroke-width="6"
+  />
+
+  <!-- Iron bands -->
+  <rect x="84" y="60" width="12" height="106" fill="#3c3c3c"/>
+  <rect x="160" y="60" width="12" height="106" fill="#3c3c3c"/>
+
+  <!-- Lid seam -->
+  <line x1="60" y1="100" x2="196" y2="100" stroke="#3e2a18" stroke-width="3"/>
+
+  <!-- Lock plate -->
+  <rect
+    x="122"
+    y="115"
+    width="12"
+    height="22"
+    rx="2"
+    ry="2"
+    fill="#c9b678"
+    stroke="#3e2a18"
+    stroke-width="2"
+  />
+  <circle cx="128" cy="125" r="3.5" fill="#3e2a18"/>
+
+  <!-- Rough-hewn grain texture -->
+  <path d="M68 120 H188" stroke="#5f3b1e" stroke-width="2" opacity="0.5"/>
+  <path d="M68 140 H188" stroke="#5f3b1e" stroke-width="2" opacity="0.5"/>
+  <path d="M68 160 H188" stroke="#5f3b1e" stroke-width="2" opacity="0.5"/>
+
+  <!-- Simple drop shadow for contrast -->
+  <rect x="62" y="92" width="136" height="76" rx="8" ry="8" fill="none" stroke="#2c1b0f" stroke-width="2" opacity="0.4"/>
+
+</svg>
