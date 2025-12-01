@@ -12,7 +12,7 @@ from terrain import TerrainType
 # Tileset settings
 TILESETS_DIR = "tilesets"
 MAPPINGS_FILE = "tileset_mappings.json"  # Will be saved in tilesets/{tileset_name}/
-TILE_SIZE = 16
+TILE_SIZE = 16  # Will be auto-detected from tileset
 SCALE = 6  # Scale up tiles for easier viewing
 
 # Get tileset path from command line argument or use default
@@ -58,16 +58,38 @@ def save_mappings_to_file(mappings, tileset_name=None):
     # Format: terrain_name -> [[x1, y1]] for single layer, or [[x1, y1], [x2, y2]] for two layers
     json_data = {}
     for terrain_type, layers in mappings.items():
+        # Get key name (handles both TerrainType and string)
+        if isinstance(terrain_type, str):
+            key_name = terrain_type
+        elif hasattr(terrain_type, 'value'):
+            key_name = terrain_type.value
+        else:
+            key_name = str(terrain_type)
+        
         # Convert to list format for JSON
         if isinstance(layers, list):
-            json_data[terrain_type.value] = layers
+            # Convert each layer to list format
+            converted_layers = []
+            for layer in layers:
+                if isinstance(layer, (tuple, list)):
+                    converted_layers.append(list(layer))
+                else:
+                    converted_layers.append(layer)
+            json_data[key_name] = converted_layers
         else:
             # Old format: single (x, y) tuple - convert to new format
-            json_data[terrain_type.value] = [list(layers)]
+            if isinstance(layers, (tuple, list)):
+                json_data[key_name] = [list(layers)]
+            else:
+                json_data[key_name] = [layers]
     
     # Add transparency color if it exists
     if save_mappings_to_file.transparency_color is not None:
         json_data['_transparency_color'] = save_mappings_to_file.transparency_color
+    
+    # Add tile size if available (from global TILE_SIZE)
+    if 'TILE_SIZE' in globals():
+        json_data['_tile_size'] = TILE_SIZE
     
     with open(mappings_file, 'w') as f:
         json.dump(json_data, f, indent=2)
@@ -121,6 +143,14 @@ TERRAIN_TYPES = [
     TerrainType.RIVER,
     TerrainType.SHALLOW_WATER,
     TerrainType.DEEP_WATER,
+    "quest_location_stone",  # Special tile for stone/mountain in quest locations
+    "village",  # Settlement/entity tiles
+    "town",
+    "city",
+    "caravan",
+    "loot",
+    "quest",
+    "player",
 ]
 
 # Initialize pygame (must be done before loading images)
@@ -136,7 +166,42 @@ if not os.path.exists(TILESET_PATH):
 pygame.display.set_mode((1, 1))
 
 tileset = pygame.image.load(TILESET_PATH).convert_alpha()
-print(f"Tileset loaded: {tileset.get_width()}x{tileset.get_height()}, format: {tileset.get_flags()}")
+tileset_width = tileset.get_width()
+tileset_height = tileset.get_height()
+print(f"Tileset loaded: {tileset_width}x{tileset_height}, format: {tileset.get_flags()}")
+
+# Auto-detect tile size
+detected_tile_size = None
+
+# First, try to infer from filename (most reliable)
+import re
+match = re.search(r'(\d+)x\d+', TILESET_PATH, re.IGNORECASE)
+if match:
+    filename_size = int(match.group(1))
+    # Verify that the detected size from filename works
+    if tileset_width % filename_size == 0 and tileset_height % filename_size == 0:
+        detected_tile_size = filename_size
+        print(f"Detected tile size from filename: {detected_tile_size}x{detected_tile_size}")
+
+# If filename didn't help, try to detect native tile size (common sizes: 8, 16, 32, 64)
+if detected_tile_size is None:
+    possible_sizes = [16, 32, 64, 8]  # Prefer larger sizes first
+    for size in possible_sizes:
+        if tileset_width % size == 0 and tileset_height % size == 0:
+            # Check if it looks like a reasonable grid (at least 4 tiles)
+            if tileset_width // size >= 4:
+                detected_tile_size = size
+                print(f"Auto-detected tile size: {detected_tile_size}x{detected_tile_size}")
+                break
+
+# If we still couldn't detect, use 16 as default
+if detected_tile_size is None:
+    detected_tile_size = 16  # Default assumption
+    print(f"Could not auto-detect tile size, using default: {detected_tile_size}x{detected_tile_size}")
+
+# Update TILE_SIZE with detected value
+TILE_SIZE = detected_tile_size
+print(f"Using tile size: {TILE_SIZE}x{TILE_SIZE}")
 
 # Check if tileset has alpha channel with transparent pixels
 has_alpha_channel = tileset.get_flags() & pygame.SRCALPHA
@@ -157,11 +222,10 @@ if has_alpha_channel:
     if has_transparency:
         print(f"Tileset has alpha channel with transparency ({transparent_pixels} transparent pixels found in sample)")
     else:
-        print(f"Tileset has alpha channel but no transparent pixels detected")
-else:
-    print(f"Tileset does not have alpha channel - will need chroma key color for transparency")
-tileset_width = tileset.get_width()
-tileset_height = tileset.get_height()
+        if has_alpha_channel:
+            print(f"Tileset has alpha channel but no transparent pixels detected")
+        else:
+            print(f"Tileset does not have alpha channel - will need chroma key color for transparency")
 
 # Calculate grid dimensions
 tiles_per_row = tileset_width // TILE_SIZE
@@ -257,10 +321,18 @@ def get_current_terrain():
         return TERRAIN_TYPES[current_terrain_index]
     return None
 
+def get_terrain_name(terrain):
+    """Get display name for terrain (handles both TerrainType and string)."""
+    if isinstance(terrain, str):
+        return terrain.replace("_", " ").title()
+    elif hasattr(terrain, 'value'):
+        return terrain.value.replace("_", " ").title()
+    return str(terrain)
+
 # Print initial terrain type
 current_terrain = get_current_terrain()
 if current_terrain:
-    terrain_name = current_terrain.value.replace("_", " ").title()
+    terrain_name = get_terrain_name(current_terrain)
     print(f"→ Now selecting tile for: {terrain_name}")
 
 def draw_tileset_grid():
@@ -392,7 +464,7 @@ def draw_info_panel():
     # Current terrain type
     current_terrain = get_current_terrain()
     if current_terrain:
-        terrain_name = current_terrain.value.replace("_", " ").title()
+        terrain_name = get_terrain_name(current_terrain)
         prompt_text = font_medium.render(f"Select tile for:", True, (200, 200, 200))
         screen.blit(prompt_text, (panel_x, panel_y))
         panel_y += 35
@@ -472,9 +544,9 @@ def draw_info_panel():
         screen.blit(assigned_text, (panel_x, panel_y))
         panel_y += 30
         
-        for terrain_type in sorted(terrain_mappings.keys(), key=lambda t: TERRAIN_TYPES.index(t)):
+        for terrain_type in sorted(terrain_mappings.keys(), key=lambda t: TERRAIN_TYPES.index(t) if t in TERRAIN_TYPES else len(TERRAIN_TYPES)):
             layers = terrain_mappings[terrain_type]
-            terrain_name = terrain_type.value.replace("_", " ").title()
+            terrain_name = get_terrain_name(terrain_type)
             
             # Format layer info
             if isinstance(layers, list) and len(layers) > 0:
@@ -503,7 +575,7 @@ while running:
                     current_terrain = get_current_terrain()
                     if current_terrain and layer1_selection:
                         terrain_mappings[current_terrain] = [layer1_selection]
-                        terrain_name = current_terrain.value.replace("_", " ").title()
+                        terrain_name = get_terrain_name(current_terrain)
                         print(f"✓ Assigned single tile ({layer1_selection[0]}, {layer1_selection[1]}) to {terrain_name} (Layer 2 cancelled)")
                         
                         # Save after each assignment
@@ -578,7 +650,7 @@ while running:
                             # Print next terrain type to console
                             next_terrain = get_current_terrain()
                             if next_terrain:
-                                next_name = next_terrain.value.replace("_", " ").title()
+                                next_name = get_terrain_name(next_terrain)
                                 print(f"\n→ Now selecting tile for: {next_name}")
                     else:
                         # No current terrain or layer1_selection, just exit
@@ -589,10 +661,10 @@ while running:
                     if current_terrain:
                         if current_terrain in terrain_mappings:
                             del terrain_mappings[current_terrain]
-                            terrain_name = current_terrain.value.replace("_", " ").title()
+                            terrain_name = get_terrain_name(current_terrain)
                             print(f"⊘ Skipped {terrain_name} (removed from mappings)")
                         else:
-                            terrain_name = current_terrain.value.replace("_", " ").title()
+                            terrain_name = get_terrain_name(current_terrain)
                             print(f"⊘ Skipped {terrain_name}")
                         
                         # Save after removal
@@ -611,7 +683,7 @@ while running:
                             # Print next terrain type to console
                             next_terrain = get_current_terrain()
                             if next_terrain:
-                                next_name = next_terrain.value.replace("_", " ").title()
+                                next_name = get_terrain_name(next_terrain)
                                 print(f"\n→ Now selecting tile for: {next_name}")
                     else:
                         # No current terrain, just exit
@@ -623,7 +695,7 @@ while running:
                     if selecting_layer == 1:
                         # Select layer 1 (base)
                         layer1_selection = (current_tile_x, current_tile_y)
-                        terrain_name = current_terrain.value.replace("_", " ").title()
+                        terrain_name = get_terrain_name(current_terrain)
                         print(f"✓ Selected Layer 1: tile ({current_tile_x}, {current_tile_y}) for {terrain_name}")
                         # Move to layer 2 selection
                         selecting_layer = 2
@@ -631,7 +703,7 @@ while running:
                     else:
                         # Select layer 2 (overlay)
                         layer2_selection = (current_tile_x, current_tile_y)
-                        terrain_name = current_terrain.value.replace("_", " ").title()
+                        terrain_name = get_terrain_name(current_terrain)
                         
                         # Check if same tile selected for both layers
                         if layer1_selection == layer2_selection:
@@ -715,7 +787,7 @@ while running:
                             # Print next terrain type to console
                             next_terrain = get_current_terrain()
                             if next_terrain:
-                                next_name = next_terrain.value.replace("_", " ").title()
+                                next_name = get_terrain_name(next_terrain)
                                 print(f"\n→ Now selecting tile for: {next_name}")
             elif event.key in (pygame.K_LEFT, pygame.K_a):
                 current_tile_x = max(0, current_tile_x - 1)
@@ -831,7 +903,7 @@ if terrain_mappings:
     for terrain_type in TERRAIN_TYPES:
         if terrain_type in terrain_mappings:
             layers = terrain_mappings[terrain_type]
-            terrain_name = terrain_type.value
+            terrain_name = get_terrain_name(terrain_type)
             # Handle both old format (tuple) and new format (list of layers)
             if isinstance(layers, list) and len(layers) > 0:
                 if len(layers) == 1:
@@ -841,7 +913,7 @@ if terrain_mappings:
             else:
                 print(f"  {terrain_name}: {layers}")
         else:
-            terrain_name = terrain_type.value
+            terrain_name = get_terrain_name(terrain_type)
             print(f"  {terrain_name}: NOT ASSIGNED")
     print("="*60)
 

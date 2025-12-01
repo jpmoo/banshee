@@ -105,17 +105,42 @@ def show_journal_dialog(screen: pygame.Surface, clock: pygame.time.Clock,
             content_lines.append(('spacer', ''))
             
             if quest_archive:
-                for i, archived_quest in enumerate(quest_archive, 1):
+                # Display in reverse order (newest first)
+                for i, archived_quest in enumerate(reversed(quest_archive), 1):
                     status = archived_quest.get('status', 'unknown')
                     status_color = 'Completed' if status == 'completed' else 'Dropped'
-                    leader_name = archived_quest.get('leader_name', 'Unknown')
-                    settlement_name = archived_quest.get('settlement_name', 'Unknown')
-                    quest_type = archived_quest.get('quest_type', 'Unknown')
-                    archived_at = archived_quest.get('archived_at', 'Unknown time')
                     
-                    content_lines.append(('header', f"Quest #{i} - {status_color}"))
-                    content_lines.append(('body', f"  From: {leader_name} at {settlement_name}"))
-                    content_lines.append(('body', f"  Type: {quest_type.title()}"))
+                    # Get archived_at or completed_at (for backwards compatibility)
+                    archived_at = archived_quest.get('archived_at') or archived_quest.get('completed_at', 'Unknown time')
+                    
+                    # Display quest description in same format as current quest
+                    quest_type = archived_quest.get('quest_type', 'fetch')
+                    if quest_type == 'fetch':
+                        # Format: "You must travel {time distance} to the {direction} of {settlement}. You will reach {location}. There, you must retrieve {item} for {person}."
+                        distance_days = archived_quest.get('distance_days', 0)
+                        direction = archived_quest.get('quest_direction', 'unknown')
+                        settlement_name = archived_quest.get('settlement_name', 'Unknown Settlement')
+                        target_item = archived_quest.get('target_item', 'item')
+                        leader_name = archived_quest.get('leader_name', 'Unknown Leader')
+                        original_location_description = archived_quest.get('original_location_description', archived_quest.get('location_description', 'location'))
+                        
+                        # Format time distance
+                        if distance_days < 1:
+                            time_str = f"{int(distance_days * 24)} hours"
+                        elif distance_days == 1:
+                            time_str = "1 day"
+                        else:
+                            time_str = f"{int(distance_days)} days"
+                        
+                        quest_description = f"You must travel {time_str} to the {direction} of {settlement_name}. You will reach {original_location_description}. There, you must retrieve {target_item.lower()} for {leader_name}."
+                        content_lines.append(('header', f"Quest #{i} - {status_color}"))
+                        content_lines.append(('body', quest_description))
+                    else:
+                        # For non-fetch quests, use the location description
+                        location_description = archived_quest.get('location_description', 'location')
+                        content_lines.append(('header', f"Quest #{i} - {status_color}"))
+                        content_lines.append(('body', location_description))
+                    
                     content_lines.append(('body', f"  Archived: {archived_at}"))
                     content_lines.append(('spacer', ''))
             else:

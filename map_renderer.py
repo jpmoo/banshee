@@ -6,9 +6,30 @@ import pygame
 import math
 import os
 import json
+import io
+import random
 from typing import List, Optional, Dict, Tuple
 from terrain import Terrain, TerrainType
 from settlements import Settlement, SettlementType
+from caravan import CaravanState
+
+# Try to import SVG support
+SVG_SUPPORT = False
+SVG_LIB = None
+
+try:
+    import cairosvg
+    SVG_SUPPORT = True
+    SVG_LIB = 'cairosvg'
+except ImportError:
+    try:
+        from svglib.svglib import svg2rlg
+        from reportlab.graphics import renderPM
+        SVG_SUPPORT = True
+        SVG_LIB = 'svglib'
+    except ImportError:
+        SVG_SUPPORT = False
+        SVG_LIB = None
 
 
 class MapRenderer:
@@ -44,6 +65,138 @@ class MapRenderer:
             self.terrain_tile_map = self._load_tile_mappings()
         else:
             self.terrain_tile_map = {}
+        
+        # Load sprite images from sprites folder
+        self.sprite_cache = {}  # Cache for loaded sprites
+        self._load_sprites()
+        
+        # Cache for noise textures (keyed by tile position for consistency)
+        self._noise_cache = {}
+    
+    def _create_noise_texture(self, base_color: Tuple[int, int, int], tile_x: int, tile_y: int) -> pygame.Surface:
+        """
+        Create a noise texture surface for a tile with darker noise pattern.
+        
+        Args:
+            base_color: RGB tuple of the base tile color
+            tile_x: Tile X coordinate (for deterministic randomness)
+            tile_y: Tile Y coordinate (for deterministic randomness)
+            
+        Returns:
+            pygame.Surface with noise pattern
+        """
+        # Create a surface for the noise pattern
+        noise_surface = pygame.Surface((self.tile_size, self.tile_size), pygame.SRCALPHA)
+        
+        # Calculate darker color for noise (closer to base color for subtler texture)
+        dark_factor = 0.88  # Only 12% darker for more subtle noise
+        noise_color = tuple(max(0, int(c * dark_factor)) for c in base_color)
+        
+        # Use tile position as seed for deterministic randomness
+        random.seed((tile_x * 7919 + tile_y * 7907) % (2**31))
+        
+        # Add random noise pixels (about 15-25% of pixels)
+        num_noise_pixels = int(self.tile_size * self.tile_size * random.uniform(0.15, 0.25))
+        for _ in range(num_noise_pixels):
+            px = random.randint(0, self.tile_size - 1)
+            py = random.randint(0, self.tile_size - 1)
+            noise_surface.set_at((px, py), noise_color)
+        
+        return noise_surface
+    
+    def _load_svg_to_surface(self, svg_path: str, size: Tuple[int, int]) -> Optional[pygame.Surface]:
+        """
+        Load an SVG file and convert it to a pygame Surface.
+        
+        Args:
+            svg_path: Path to the SVG file
+            size: Target size (width, height) for the surface
+            
+        Returns:
+            pygame.Surface or None if loading fails
+        """
+        if not SVG_SUPPORT:
+            print(f"Warning: SVG support not available. Install cairosvg or svglib to use SVG sprites.")
+            return None
+        
+        if not os.path.exists(svg_path):
+            print(f"Warning: SVG file not found: {svg_path}")
+            return None
+        
+        try:
+            if SVG_LIB == 'svglib':
+                # Use svglib + reportlab
+                from svglib.svglib import svg2rlg
+                from reportlab.graphics import renderPM
+                drawing = svg2rlg(svg_path)
+                if drawing:
+                    # Render to PNG bytes
+                    png_bytes = renderPM.drawToString(drawing, fmt='PNG', dpi=72)
+                    # Load PNG bytes into pygame with alpha channel preserved
+                    png_surface = pygame.image.load(io.BytesIO(png_bytes)).convert_alpha()
+                    # Scale to target size
+                    return pygame.transform.scale(png_surface, size)
+            else:
+                # Use cairosvg
+                import cairosvg
+                # Render SVG to PNG bytes with transparency
+                png_bytes = cairosvg.svg2png(url=svg_path, output_width=size[0], output_height=size[1])
+                # Load PNG bytes into pygame with alpha channel preserved
+                png_surface = pygame.image.load(io.BytesIO(png_bytes)).convert_alpha()
+                return png_surface
+        except Exception as e:
+            print(f"Error loading SVG {svg_path}: {e}")
+            return None
+    
+    def _load_sprites(self):
+        """Load sprite images from the sprites folder."""
+        sprites_dir = "sprites"
+        if not os.path.exists(sprites_dir):
+            print(f"Warning: Sprites folder not found: {sprites_dir}")
+            return
+        
+        # Sprite file mappings
+        sprite_files = {
+            'village': 'village.svg',
+            'town': 'town.svg',
+            'city': 'city.svg',
+            'quest_location': 'quest_location.svg',  # May not exist, that's okay
+            'caravan': 'caravan.svg',
+            'player': 'player.svg',
+            'quest': 'quest.svg',
+            'loot': 'loot.svg'
+        }
+        
+        # Calculate sprite sizes (different sizes for different types)
+        # Store base size and scale factors
+        base_sprite_size = int(self.tile_size * 1.0)
+        self.sprite_scales = {
+            'village': 1.0,
+            'caravan': 1.0,
+            'town': 1.2,
+            'city': 1.4,
+            'player': 1.2,
+            'quest': 1.2,
+            'loot': 1.2
+        }
+        
+        for sprite_type, filename in sprite_files.items():
+            svg_path = os.path.join(sprites_dir, filename)
+            if os.path.exists(svg_path):
+                # Load at base size, we'll scale when rendering
+                sprite_surface = self._load_svg_to_surface(svg_path, (base_sprite_size, base_sprite_size))
+                if sprite_surface:
+                    self.sprite_cache[sprite_type] = sprite_surface
+                    print(f"Loaded sprite: {sprite_type} from {svg_path}")
+                else:
+                    print(f"Failed to load sprite: {sprite_type} from {svg_path}")
+            else:
+                # Try alternative names or skip
+                if sprite_type == 'quest_location':
+                    # Quest location might use a different sprite or be optional
+                    pass
+                else:
+                    print(f"Warning: Sprite file not found: {svg_path}")
     
     def switch_tileset(self, tileset_info: Optional[Dict]):
         """
@@ -103,15 +256,25 @@ class MapRenderer:
                 tileset_width = self.tileset.get_width()
                 tileset_height = self.tileset.get_height()
                 
-                # First, try to infer from filename (most reliable)
-                import re
                 detected_size = None
-                match = re.search(r'(\d+)x\d+', self.tileset_path, re.IGNORECASE)
-                if match:
-                    filename_size = int(match.group(1))
-                    # Verify that the detected size from filename works
-                    if tileset_width % filename_size == 0 and tileset_height % filename_size == 0:
-                        detected_size = filename_size
+                
+                # First, try to use tile size from JSON file (most reliable)
+                if hasattr(self, '_json_tile_size') and self._json_tile_size is not None:
+                    json_size = self._json_tile_size
+                    # Verify that the JSON tile size works with the tileset dimensions
+                    if tileset_width % json_size == 0 and tileset_height % json_size == 0:
+                        detected_size = json_size
+                        print(f"Using tile size from JSON file: {detected_size}x{detected_size}")
+                
+                # If JSON didn't help, try to infer from filename
+                if detected_size is None:
+                    import re
+                    match = re.search(r'(\d+)x\d+', self.tileset_path, re.IGNORECASE)
+                    if match:
+                        filename_size = int(match.group(1))
+                        # Verify that the detected size from filename works
+                        if tileset_width % filename_size == 0 and tileset_height % filename_size == 0:
+                            detected_size = filename_size
                 
                 # If filename didn't help, try to detect native tile size (common sizes: 8, 16, 32, 64)
                 if detected_size is None:
@@ -194,6 +357,7 @@ class MapRenderer:
                 
                 mappings = {}
                 transparency_color = None
+                json_tile_size = None
                 
                 for terrain_name, layers in json_data.items():
                     # Check for transparency color metadata
@@ -201,24 +365,52 @@ class MapRenderer:
                         transparency_color = tuple(layers) if isinstance(layers, list) and len(layers) >= 3 else None
                         continue
                     
+                    # Check for tile size metadata
+                    if terrain_name == '_tile_size':
+                        json_tile_size = layers if isinstance(layers, int) else None
+                        continue
+                    
+                    # Check for special mappings (not TerrainType)
+                    special_keys = ['quest_location_stone', 'village', 'town', 'city', 'caravan', 'loot', 'quest', 'player']
+                    if terrain_name in special_keys:
+                        # Store as special key in mappings dict
+                        if isinstance(layers, list) and len(layers) > 0:
+                            if isinstance(layers[0], list):
+                                mappings[terrain_name] = [tuple(layer) for layer in layers]
+                            else:
+                                mappings[terrain_name] = [tuple(layers)]
+                        continue
+                    
                     # Find matching TerrainType
+                    found_terrain_type = None
                     for terrain_type in TerrainType:
                         if terrain_type.value == terrain_name:
-                            # Handle both old format (single [x, y]) and new format ([[x, y]] or [[x1, y1], [x2, y2]])
-                            if isinstance(layers, list) and len(layers) > 0:
-                                if isinstance(layers[0], list):
-                                    # New format: list of [x, y] lists
-                                    mappings[terrain_type] = [tuple(layer) for layer in layers]
-                                else:
-                                    # Old format: single [x, y] - convert to new format
-                                    mappings[terrain_type] = [tuple(layers)]
+                            found_terrain_type = terrain_type
                             break
+                    
+                    if found_terrain_type:
+                        # Handle both old format (single [x, y]) and new format ([[x, y]] or [[x1, y1], [x2, y2]])
+                        if isinstance(layers, list) and len(layers) > 0:
+                            if isinstance(layers[0], list):
+                                # New format: list of [x, y] lists
+                                mappings[found_terrain_type] = [tuple(layer) for layer in layers]
+                            else:
+                                # Old format: single [x, y] - convert to new format
+                                mappings[found_terrain_type] = [tuple(layers)]
+                    # If not found in TerrainType, skip it (might be an unknown type)
                 
                 # Store transparency color for use in compositing
                 if transparency_color:
                     self.transparency_color = transparency_color
                     print(f"  Transparency color: RGB{transparency_color}")
-                else:
+                
+                # Store tile size from JSON if found (will be used in _load_tileset)
+                if json_tile_size is not None:
+                    # Store as attribute so _load_tileset can use it
+                    self._json_tile_size = json_tile_size
+                    print(f"  Tile size from JSON: {json_tile_size}x{json_tile_size}")
+                
+                if not transparency_color:
                     self.transparency_color = None
                 
                 # Don't merge defaults - only use what's in the file
@@ -226,14 +418,24 @@ class MapRenderer:
                 
                 print(f"  Loaded terrain mappings from {mappings_file}")
                 print(f"  Terrain mappings:")
-                for terrain_type, layers in sorted(mappings.items(), key=lambda x: x[0].value):
+                # Sort by key name (handles both TerrainType and strings)
+                def get_key_name(key):
+                    if isinstance(key, str):
+                        return key
+                    elif hasattr(key, 'value'):
+                        return key.value
+                    else:
+                        return str(key)
+                
+                for terrain_type, layers in sorted(mappings.items(), key=lambda x: get_key_name(x[0])):
+                    key_name = get_key_name(terrain_type)
                     if isinstance(layers, list) and len(layers) > 0:
                         if len(layers) == 1:
-                            print(f"    {terrain_type.value}: tile {layers[0]}")
+                            print(f"    {key_name}: tile {layers[0]}")
                         else:
-                            print(f"    {terrain_type.value}: layer 1 {layers[0]}, layer 2 {layers[1]}")
+                            print(f"    {key_name}: layer 1 {layers[0]}, layer 2 {layers[1]}")
                     else:
-                        print(f"    {terrain_type.value}: tile {layers}")
+                        print(f"    {key_name}: tile {layers}")
                 
                 return mappings
             except Exception as e:
@@ -245,7 +447,7 @@ class MapRenderer:
             print(f"  Terrain types will use color-based rendering")
             return {}
     
-    def _get_tile_surface(self, terrain_type: TerrainType) -> Optional[pygame.Surface]:
+    def _get_tile_surface(self, terrain_type: TerrainType, is_quest_location: bool = False) -> Optional[pygame.Surface]:
         """
         Get the tile surface for a terrain type from the tileset.
         Supports single layer or two-layer tiles (base + overlay).
@@ -253,6 +455,7 @@ class MapRenderer:
         
         Args:
             terrain_type: The terrain type
+            is_quest_location: If True and terrain_type is MOUNTAIN, use quest_location_stone if available
             
         Returns:
             pygame.Surface of the tile scaled to display size, or None if tileset not available (color-based rendering)
@@ -264,10 +467,18 @@ class MapRenderer:
         if not self.tileset or self.tileset_tile_size is None:
             return None
         
-        if terrain_type not in self.terrain_tile_map:
+        # Special handling for quest location stone/mountain
+        if is_quest_location and terrain_type == TerrainType.MOUNTAIN:
+            if 'quest_location_stone' in self.terrain_tile_map:
+                layers = self.terrain_tile_map['quest_location_stone']
+            elif terrain_type in self.terrain_tile_map:
+                layers = self.terrain_tile_map[terrain_type]
+            else:
+                return None
+        elif terrain_type not in self.terrain_tile_map:
             return None
-        
-        layers = self.terrain_tile_map[terrain_type]
+        else:
+            layers = self.terrain_tile_map[terrain_type]
         
         # Handle both old format (single tuple) and new format (list of layers)
         if isinstance(layers, tuple):
@@ -349,13 +560,84 @@ class MapRenderer:
                     # Composite overlay onto base (alpha blending)
                     composite.blit(overlay_copy, (0, 0))
         
-        # Scale to display size if needed
+        # Always scale to display size (32x32 by default)
+        # This ensures 16x16, 32x32, 64x64, etc. tilesets are all displayed at the same size
         if self.tileset_tile_size != self.tile_size:
             tile_surface = pygame.transform.scale(composite, (self.tile_size, self.tile_size))
         else:
             tile_surface = composite
         
         return tile_surface
+    
+    def _get_entity_tile_surface(self, entity_type: str) -> Optional[pygame.Surface]:
+        """
+        Get the tile surface for an entity type (village, town, city, caravan, loot, quest, player) from the tileset.
+        
+        Args:
+            entity_type: The entity type string ('village', 'town', 'city', 'caravan', 'loot', 'quest', 'player')
+            
+        Returns:
+            pygame.Surface of the tile at 100% size, or None if not available in tileset
+        """
+        # If not using tileset, return None to use sprites
+        if not self.use_tileset:
+            return None
+        
+        if not self.tileset or self.tileset_tile_size is None:
+            return None
+        
+        # Check if entity type is in mappings
+        if entity_type not in self.terrain_tile_map:
+            return None
+        
+        layers = self.terrain_tile_map[entity_type]
+        
+        # Handle both old format (single tuple) and new format (list of layers)
+        if isinstance(layers, tuple):
+            layers = [layers]
+        elif not isinstance(layers, list):
+            return None
+        
+        # Create composite surface (start with transparent background)
+        composite = pygame.Surface((self.tileset_tile_size, self.tileset_tile_size), pygame.SRCALPHA)
+        
+        # Draw each layer (first layer is base, subsequent layers are overlays)
+        for layer_index, layer in enumerate(layers):
+            if not isinstance(layer, (tuple, list)) or len(layer) < 2:
+                continue
+            
+            tile_x, tile_y = layer[0], layer[1]
+            
+            # Calculate source position in tileset
+            source_x = tile_x * self.tileset_tile_size
+            source_y = tile_y * self.tileset_tile_size
+            
+            # Bounds check
+            if source_x + self.tileset_tile_size > self.tileset.get_width() or \
+               source_y + self.tileset_tile_size > self.tileset.get_height():
+                continue  # Skip invalid tile coordinates
+            
+            source_rect = pygame.Rect(source_x, source_y, self.tileset_tile_size, self.tileset_tile_size)
+            
+            # Extract tile from tileset at native size
+            native_tile = pygame.Surface((self.tileset_tile_size, self.tileset_tile_size), pygame.SRCALPHA)
+            native_tile.blit(self.tileset, (0, 0), source_rect)
+            
+            # Composite onto base
+            if layer_index == 0:
+                # First layer: replace background
+                composite = native_tile
+            else:
+                # Subsequent layers: alpha blend
+                composite.blit(native_tile, (0, 0))
+        
+        # Scale to display size (100% = tile_size)
+        if self.tileset_tile_size != self.tile_size:
+            entity_surface = pygame.transform.scale(composite, (self.tile_size, self.tile_size))
+        else:
+            entity_surface = composite
+        
+        return entity_surface
     
     def render_map(self, map_data: List[List[Terrain]], surface: pygame.Surface, 
                    quest_marker: Optional[Tuple[int, int]] = None, 
@@ -367,6 +649,7 @@ class MapRenderer:
                    explored_tiles: Optional[set] = None,
                    visible_tiles: Optional[set] = None,
                    caravans: Optional[List] = None,
+                   player_position: Optional[Tuple[int, int]] = None,
                    is_quest_location: bool = False):
         """
         Render the map to a pygame surface.
@@ -415,7 +698,7 @@ class MapRenderer:
                 rect = pygame.Rect(screen_x, screen_y, self.tile_size, self.tile_size)
                 
                 # Try to use tileset image, fall back to colored rectangle
-                tile_surface = self._get_tile_surface(terrain.terrain_type)
+                tile_surface = self._get_tile_surface(terrain.terrain_type, is_quest_location=is_quest_location)
                 
                 if tile_surface:
                     # Use tileset tile
@@ -452,13 +735,20 @@ class MapRenderer:
                     # 3. Explored but not visible tiles: darkened
                     if is_visible:
                         # Visible tiles: always show normal color (never darkened)
+                        # Draw base color
                         pygame.draw.rect(surface, color, rect)
+                        # Add noise texture for visual interest
+                        noise_surface = self._create_noise_texture(color, x, y)
+                        surface.blit(noise_surface, (screen_x, screen_y), special_flags=pygame.BLEND_ALPHA_SDL2)
                     elif not is_explored:
                         # Unexplored: in quest locations, darken; on overland map, black out
                         if is_quest_location:
                             # Quest locations: darken instead of black out
                             fog_color = tuple(max(0, int(c * 0.2)) for c in color)
                             pygame.draw.rect(surface, fog_color, rect)
+                            # Add noise texture to darkened quest location tiles
+                            noise_surface = self._create_noise_texture(fog_color, x, y)
+                            surface.blit(noise_surface, (screen_x, screen_y), special_flags=pygame.BLEND_ALPHA_SDL2)
                         else:
                             # Overland map: completely black out unexplored tiles
                             pygame.draw.rect(surface, (0, 0, 0), rect)
@@ -467,6 +757,9 @@ class MapRenderer:
                         # Darken by 70% (keep 30% of original brightness)
                         fog_color = tuple(max(0, int(c * 0.3)) for c in color)
                         pygame.draw.rect(surface, fog_color, rect)
+                        # Add noise texture to darkened tiles too
+                        noise_surface = self._create_noise_texture(fog_color, x, y)
+                        surface.blit(noise_surface, (screen_x, screen_y), special_flags=pygame.BLEND_ALPHA_SDL2)
                     
                     # Draw border for better visibility (only if explored and using colored rectangles)
                     if is_explored:
@@ -483,18 +776,34 @@ class MapRenderer:
                 center_x = screen_x + self.tile_size // 2
                 center_y = screen_y + self.tile_size // 2
                 
-                # Draw quest marker as a yellow star/pentagon
-                size = int(self.tile_size * 0.7)
-                quest_color = (255, 255, 0)  # Yellow
-                # Draw pentagon
-                points = []
-                for i in range(5):
-                    angle = (i * 2 * math.pi / 5) - (math.pi / 2)  # Start at top
-                    px = center_x + size // 2 * math.cos(angle)
-                    py = center_y + size // 2 * math.sin(angle)
-                    points.append((px, py))
-                pygame.draw.polygon(surface, quest_color, points)
-                pygame.draw.polygon(surface, (255, 200, 0), points, 2)  # Orange border
+                # Try tileset first, then fall back to sprite
+                entity_tile = self._get_entity_tile_surface('quest')
+                if entity_tile:
+                    # Use tileset tile at 100% size
+                    entity_rect = entity_tile.get_rect(center=(center_x, center_y))
+                    surface.blit(entity_tile, entity_rect)
+                elif 'quest' in self.sprite_cache:
+                    # Fall back to sprite with appropriate scaling
+                    sprite_surface = self.sprite_cache['quest']
+                    scale = self.sprite_scales.get('quest', 1.0)
+                    if scale != 1.0:
+                        scaled_size = (int(sprite_surface.get_width() * scale), int(sprite_surface.get_height() * scale))
+                        sprite_surface = pygame.transform.scale(sprite_surface, scaled_size)
+                    sprite_rect = sprite_surface.get_rect(center=(center_x, center_y))
+                    surface.blit(sprite_surface, sprite_rect)
+                else:
+                    # Fall back to shape drawing
+                    size = int(self.tile_size * 0.7)
+                    quest_color = (255, 255, 0)  # Yellow
+                    # Draw pentagon
+                    points = []
+                    for i in range(5):
+                        angle = (i * 2 * math.pi / 5) - (math.pi / 2)  # Start at top
+                        px = center_x + size // 2 * math.cos(angle)
+                        py = center_y + size // 2 * math.sin(angle)
+                        points.append((px, py))
+                    pygame.draw.polygon(surface, quest_color, points)
+                    pygame.draw.polygon(surface, (255, 200, 0), points, 2)  # Orange border
         
         # Draw settlements (only if visible)
         if settlements:
@@ -513,63 +822,114 @@ class MapRenderer:
                     center_x = screen_x + self.tile_size // 2
                     center_y = screen_y + self.tile_size // 2
                     
+                    # Try to use sprite, fall back to shape drawing
+                    sprite_type = None
                     if settlement.settlement_type.value == "town":
-                        # Towns: Draw as a square/rectangle (like a fortified settlement)
-                        size = int(self.tile_size * 0.6)  # Make towns larger (60% of tile size)
-                        town_rect = pygame.Rect(
-                            center_x - size // 2,
-                            center_y - size // 2,
-                            size,
-                            size
-                        )
-                        # Dark gray color for towns (distinct from hills)
-                        pygame.draw.rect(surface, (60, 60, 60), town_rect)  # Dark gray
-                        pygame.draw.rect(surface, (255, 255, 255), town_rect, 3)  # Bright white border for visibility
-                        # Add a bright center dot to make it more visible
-                        pygame.draw.circle(surface, (255, 255, 255), (center_x, center_y), 3)
+                        sprite_type = 'town'
                     elif settlement.settlement_type.value == "village":
-                        # Villages: Draw as a small circle (simpler settlement)
-                        radius = self.tile_size // 5
-                        # Light brown/tan color for villages
-                        pygame.draw.circle(surface, (160, 120, 80), (center_x, center_y), radius)  # Medium brown
-                        pygame.draw.circle(surface, (255, 255, 200), (center_x, center_y), radius, 1)  # Light border
-                        # Highlight selected village
-                        if settlement == selected_village:
-                            pygame.draw.circle(surface, (255, 255, 0), (center_x, center_y), radius + 2, 2)
+                        sprite_type = 'village'
                     elif settlement.settlement_type.value == "city":
-                        # Cities: Draw as a pentagon/star shape (larger and more prominent)
-                        size = int(self.tile_size * 0.8)  # 80% of tile size
-                        # Bronze/gold color for cities
-                        city_color = (205, 127, 50)  # Bronze
-                        # Draw pentagon
-                        points = []
-                        for i in range(5):
-                            angle = (i * 2 * math.pi / 5) - (math.pi / 2)  # Start at top
-                            px = center_x + size // 2 * math.cos(angle)
-                            py = center_y + size // 2 * math.sin(angle)
-                            points.append((px, py))
-                        pygame.draw.polygon(surface, city_color, points)
-                        pygame.draw.polygon(surface, (255, 255, 255), points, 3)  # White border
-                        # Add center dot
-                        pygame.draw.circle(surface, (255, 215, 0), (center_x, center_y), 4)  # Gold center
+                        sprite_type = 'city'
+                    
+                    # Try tileset first, then fall back to sprite
+                    entity_tile = self._get_entity_tile_surface(sprite_type) if sprite_type else None
+                    if entity_tile:
+                        # Use tileset tile at 100% size
+                        entity_rect = entity_tile.get_rect(center=(center_x, center_y))
+                        surface.blit(entity_tile, entity_rect)
+                    elif sprite_type and sprite_type in self.sprite_cache:
+                        # Fall back to sprite with appropriate scaling
+                        sprite_surface = self.sprite_cache[sprite_type]
+                        scale = self.sprite_scales.get(sprite_type, 1.0)
+                        if scale != 1.0:
+                            scaled_size = (int(sprite_surface.get_width() * scale), int(sprite_surface.get_height() * scale))
+                            sprite_surface = pygame.transform.scale(sprite_surface, scaled_size)
+                        sprite_rect = sprite_surface.get_rect(center=(center_x, center_y))
+                        surface.blit(sprite_surface, sprite_rect)
+                        # Highlight selected village
+                        if settlement == selected_village and sprite_type == 'village':
+                            highlight_radius = int(self.tile_size * 0.45)
+                            pygame.draw.circle(surface, (255, 255, 0), (center_x, center_y), highlight_radius, 2)
+                    else:
+                        # Fall back to shape drawing
+                        if settlement.settlement_type.value == "town":
+                            # Towns: Draw as a square/rectangle (like a fortified settlement)
+                            size = int(self.tile_size * 0.6)  # Make towns larger (60% of tile size)
+                            town_rect = pygame.Rect(
+                                center_x - size // 2,
+                                center_y - size // 2,
+                                size,
+                                size
+                            )
+                            # Dark gray color for towns (distinct from hills)
+                            pygame.draw.rect(surface, (60, 60, 60), town_rect)  # Dark gray
+                            pygame.draw.rect(surface, (255, 255, 255), town_rect, 3)  # Bright white border for visibility
+                            # Add a bright center dot to make it more visible
+                            pygame.draw.circle(surface, (255, 255, 255), (center_x, center_y), 3)
+                        elif settlement.settlement_type.value == "village":
+                            # Villages: Draw as a small circle (simpler settlement)
+                            radius = self.tile_size // 5
+                            # Light brown/tan color for villages
+                            pygame.draw.circle(surface, (160, 120, 80), (center_x, center_y), radius)  # Medium brown
+                            pygame.draw.circle(surface, (255, 255, 200), (center_x, center_y), radius, 1)  # Light border
+                            # Highlight selected village
+                            if settlement == selected_village:
+                                pygame.draw.circle(surface, (255, 255, 0), (center_x, center_y), radius + 2, 2)
+                        elif settlement.settlement_type.value == "city":
+                            # Cities: Draw as a pentagon/star shape (larger and more prominent)
+                            size = int(self.tile_size * 0.8)  # 80% of tile size
+                            # Bronze/gold color for cities
+                            city_color = (205, 127, 50)  # Bronze
+                            # Draw pentagon
+                            points = []
+                            for i in range(5):
+                                angle = (i * 2 * math.pi / 5) - (math.pi / 2)  # Start at top
+                                px = center_x + size // 2 * math.cos(angle)
+                                py = center_y + size // 2 * math.sin(angle)
+                                points.append((px, py))
+                            pygame.draw.polygon(surface, city_color, points)
+                            pygame.draw.polygon(surface, (255, 255, 255), points, 3)  # White border
+                            # Add center dot
+                            pygame.draw.circle(surface, (255, 215, 0), (center_x, center_y), 4)  # Gold center
         
-        # Draw caravans
+        # Draw caravans (only when traveling, not when at town or village)
         if caravans:
             for caravan in caravans:
-                # Only draw if caravan is visible (in explored/visible tiles)
+                # Only render caravans that are traveling
+                if caravan.state not in [CaravanState.TRAVELING_TO_TOWN, CaravanState.TRAVELING_TO_VILLAGE]:
+                    continue  # Skip caravans at town or village
+                
                 caravan_x, caravan_y = caravan.get_tile_position()
-                if explored_tiles is None or (caravan_x, caravan_y) in explored_tiles:
-                    # Check if caravan is on screen
-                    if start_x <= caravan_x < end_x and start_y <= caravan_y < end_y:
-                        screen_x = (caravan_x - camera_x) * self.tile_size
-                        screen_y = (caravan_y - camera_y) * self.tile_size
-                        
-                        # Draw caravan as a small brown rectangle with a border
+                # Only draw if caravan is on screen and visible (fog of war)
+                if start_x <= caravan_x < end_x and start_y <= caravan_y < end_y:
+                    # Check if caravan is visible (fog of war)
+                    is_visible = visible_tiles is None or (caravan_x, caravan_y) in visible_tiles
+                    if not is_visible:
+                        continue  # Skip drawing if not visible
+                    
+                    screen_x = (caravan_x - camera_x) * self.tile_size
+                    screen_y = (caravan_y - camera_y) * self.tile_size
+                    center_x = screen_x + self.tile_size // 2
+                    center_y = screen_y + self.tile_size // 2
+                    
+                    # Try tileset first, then fall back to sprite
+                    entity_tile = self._get_entity_tile_surface('caravan')
+                    if entity_tile:
+                        # Use tileset tile at 100% size
+                        entity_rect = entity_tile.get_rect(center=(center_x, center_y))
+                        surface.blit(entity_tile, entity_rect)
+                    elif 'caravan' in self.sprite_cache:
+                        # Fall back to sprite with appropriate scaling
+                        sprite_surface = self.sprite_cache['caravan']
+                        scale = self.sprite_scales.get('caravan', 1.0)
+                        if scale != 1.0:
+                            scaled_size = (int(sprite_surface.get_width() * scale), int(sprite_surface.get_height() * scale))
+                            sprite_surface = pygame.transform.scale(sprite_surface, scaled_size)
+                        sprite_rect = sprite_surface.get_rect(center=(center_x, center_y))
+                        surface.blit(sprite_surface, sprite_rect)
+                    else:
+                        # Fall back to shape drawing
                         caravan_size = self.tile_size // 3
-                        center_x = screen_x + self.tile_size // 2
-                        center_y = screen_y + self.tile_size // 2
-                        
-                        # Draw caravan (brown/beige color)
                         caravan_rect = pygame.Rect(
                             center_x - caravan_size // 2,
                             center_y - caravan_size // 2,
@@ -578,6 +938,43 @@ class MapRenderer:
                         )
                         pygame.draw.rect(surface, (139, 90, 43), caravan_rect)  # Brown
                         pygame.draw.rect(surface, (255, 255, 200), caravan_rect, 2)  # Light border
+        
+        # Draw player
+        if player_position:
+            px, py = player_position
+            # Only draw if player is on screen
+            if start_x <= px < end_x and start_y <= py < end_y:
+                # Check if player position is visible (fog of war)
+                is_visible = visible_tiles is None or (px, py) in visible_tiles
+                if is_visible:
+                    screen_x = (px - camera_x) * self.tile_size
+                    screen_y = (py - camera_y) * self.tile_size
+                    center_x = screen_x + self.tile_size // 2
+                    center_y = screen_y + self.tile_size // 2
+                    
+                    # Try tileset first, then fall back to sprite
+                    entity_tile = self._get_entity_tile_surface('player')
+                    if entity_tile:
+                        # Use tileset tile at 100% size
+                        entity_rect = entity_tile.get_rect(center=(center_x, center_y))
+                        surface.blit(entity_tile, entity_rect)
+                    elif 'player' in self.sprite_cache:
+                        # Fall back to sprite with appropriate scaling
+                        sprite_surface = self.sprite_cache['player']
+                        scale = self.sprite_scales.get('player', 1.0)
+                        if scale != 1.0:
+                            scaled_size = (int(sprite_surface.get_width() * scale), int(sprite_surface.get_height() * scale))
+                            sprite_surface = pygame.transform.scale(sprite_surface, scaled_size)
+                        sprite_rect = sprite_surface.get_rect(center=(center_x, center_y))
+                        surface.blit(sprite_surface, sprite_rect)
+                    else:
+                        # Fall back to shape drawing
+                        pygame.draw.circle(surface, (255, 0, 0), 
+                                         (center_x, center_y),
+                                         self.tile_size // 3)
+                        pygame.draw.circle(surface, (255, 255, 255),
+                                         (center_x, center_y),
+                                         self.tile_size // 3, 2)
         
         # Draw arrows for selected settlements
         if selected_village and selected_village.vassal_to:
