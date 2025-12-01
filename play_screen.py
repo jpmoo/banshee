@@ -15,7 +15,98 @@ from caravan import Caravan, CaravanState
 from tileset_selection_screen import TilesetSelectionScreen
 from quest_generator import generate_quest
 from journal_dialog import show_journal_dialog
+from renown_dialog import show_renown_dialog
 from text_utils import wrap_text
+
+
+def draw_celtic_knot_border(surface: pygame.Surface, rect: pygame.Rect, color: Tuple[int, int, int] = (150, 150, 150), thickness: int = 3):
+    """
+    Draw a celtic knot-style border around a rectangle.
+    Creates an interwoven pattern with twists at corners.
+    
+    Args:
+        surface: Pygame surface to draw on
+        rect: Rectangle to draw border around
+        color: Border color (default: gray)
+        thickness: Line thickness (default: 3)
+    """
+    x, y, w, h = rect
+    
+    # Corner radius for the twists
+    corner_radius = 10
+    
+    # Draw the four sides with interwoven pattern
+    # Top edge - ensure full width coverage
+    for i in range(0, w, 12):
+        segment_length = min(12, w - i)
+        end_x = x + i + segment_length
+        if end_x > x + w:
+            end_x = x + w
+        if (i // 12) % 2 == 0:
+            # Over pattern
+            pygame.draw.line(surface, color, (x + i, y), (end_x, y), thickness)
+        else:
+            # Under pattern (slightly offset)
+            pygame.draw.line(surface, color, (x + i, y + 1), (end_x, y + 1), thickness)
+    
+    # Bottom edge - ensure full width coverage and reaches bottom
+    bottom_y = y + h - 1
+    for i in range(0, w, 12):
+        segment_length = min(12, w - i)
+        end_x = x + i + segment_length
+        if end_x > x + w:
+            end_x = x + w
+        if (i // 12) % 2 == 1:
+            # Over pattern
+            pygame.draw.line(surface, color, (x + i, bottom_y), (end_x, bottom_y), thickness)
+        else:
+            # Under pattern
+            pygame.draw.line(surface, color, (x + i, bottom_y - 1), (end_x, bottom_y - 1), thickness)
+    
+    # Left edge - ensure full height coverage from top to bottom
+    for i in range(0, h, 12):
+        segment_length = min(12, h - i)
+        start_y = y + i
+        end_y = y + i + segment_length
+        # Ensure we reach the bottom edge
+        if i + segment_length >= h:
+            end_y = y + h
+        if (i // 12) % 2 == 0:
+            # Over pattern
+            pygame.draw.line(surface, color, (x, start_y), (x, end_y), thickness)
+        else:
+            # Under pattern
+            pygame.draw.line(surface, color, (x + 1, start_y), (x + 1, end_y), thickness)
+    
+    # Right edge - ensure full height coverage and reaches right edge
+    right_x = x + w - 1
+    for i in range(0, h, 12):
+        segment_length = min(12, h - i)
+        start_y = y + i
+        end_y = y + i + segment_length
+        # Ensure we reach the bottom edge
+        if i + segment_length >= h:
+            end_y = y + h
+        if (i // 12) % 2 == 1:
+            # Over pattern
+            pygame.draw.line(surface, color, (right_x, start_y), (right_x, end_y), thickness)
+        else:
+            # Under pattern
+            pygame.draw.line(surface, color, (right_x - 1, start_y), (right_x - 1, end_y), thickness)
+    
+    # Draw corner twists (small circles/arcs)
+    # Top-left corner
+    pygame.draw.arc(surface, color, pygame.Rect(x - corner_radius//2, y - corner_radius//2, corner_radius, corner_radius), 
+                   0, math.pi/2, thickness)
+    # Top-right corner
+    pygame.draw.arc(surface, color, pygame.Rect(x + w - corner_radius//2, y - corner_radius//2, corner_radius, corner_radius), 
+                   math.pi/2, math.pi, thickness)
+    # Bottom-left corner
+    pygame.draw.arc(surface, color, pygame.Rect(x - corner_radius//2, y + h - corner_radius//2, corner_radius, corner_radius), 
+                   3*math.pi/2, 2*math.pi, thickness)
+    # Bottom-right corner
+    pygame.draw.arc(surface, color, pygame.Rect(x + w - corner_radius//2, y + h - corner_radius//2, corner_radius, corner_radius), 
+                   math.pi, 3*math.pi/2, thickness)
 
 
 class PlayScreen:
@@ -424,7 +515,7 @@ class PlayScreen:
                 rect = pygame.Rect(screen_x, screen_y, self.map_view_tile_size, self.map_view_tile_size)
                 pygame.draw.rect(map_surface, color, rect)
         
-        # Draw settlements (only if explored)
+        # Draw settlements (only if explored) - use sprites if available
         for settlement in self.settlements:
             x, y = settlement.get_position()
             
@@ -440,29 +531,44 @@ class PlayScreen:
             center_x = screen_x + self.map_view_tile_size // 2
             center_y = screen_y + self.map_view_tile_size // 2
             
+            # Try to use sprite, fall back to shape drawing
+            sprite_type = None
             if settlement.settlement_type == SettlementType.CITY:
-                # Cities: Very large and visible (star/pentagon shape)
-                size = max(8, self.map_view_tile_size)
-                # Draw star/pentagon
-                points = []
-                for i in range(5):
-                    angle = (i * 2 * 3.14159 / 5) - 3.14159 / 2
-                    outer_x = center_x + int(size * 0.8 * math.cos(angle))
-                    outer_y = center_y + int(size * 0.8 * math.sin(angle))
-                    points.append((outer_x, outer_y))
-                pygame.draw.polygon(map_surface, (255, 215, 0), points)  # Gold
-                pygame.draw.polygon(map_surface, (255, 255, 255), points, 2)  # White border
+                sprite_type = 'city'
             elif settlement.settlement_type == SettlementType.TOWN:
-                # Towns: Large and visible
-                size = max(6, self.map_view_tile_size - 2)
-                town_rect = pygame.Rect(
-                    center_x - size // 2,
-                    center_y - size // 2,
-                    size,
-                    size
-                )
-                pygame.draw.rect(map_surface, (255, 255, 0), town_rect)  # Bright yellow
-                pygame.draw.rect(map_surface, (255, 255, 255), town_rect, 2)  # White border
+                sprite_type = 'town'
+            elif settlement.settlement_type == SettlementType.VILLAGE:
+                sprite_type = 'village'
+            
+            # Don't use sprites in zoomed-out map view - use original shapes
+            # Fall back to shape drawing
+            if False:  # Disabled sprite rendering for map view
+                pass
+            else:
+                # Fall back to shape drawing
+                if settlement.settlement_type == SettlementType.CITY:
+                    # Cities: Very large and visible (star/pentagon shape)
+                    size = max(8, self.map_view_tile_size)
+                    # Draw star/pentagon
+                    points = []
+                    for i in range(5):
+                        angle = (i * 2 * 3.14159 / 5) - 3.14159 / 2
+                        outer_x = center_x + int(size * 0.8 * math.cos(angle))
+                        outer_y = center_y + int(size * 0.8 * math.sin(angle))
+                        points.append((outer_x, outer_y))
+                    pygame.draw.polygon(map_surface, (255, 215, 0), points)  # Gold
+                    pygame.draw.polygon(map_surface, (255, 255, 255), points, 2)  # White border
+                elif settlement.settlement_type == SettlementType.TOWN:
+                    # Towns: Large and visible
+                    size = max(6, self.map_view_tile_size - 2)
+                    town_rect = pygame.Rect(
+                        center_x - size // 2,
+                        center_y - size // 2,
+                        size,
+                        size
+                    )
+                    pygame.draw.rect(map_surface, (255, 255, 0), town_rect)  # Bright yellow
+                    pygame.draw.rect(map_surface, (255, 255, 255), town_rect, 2)  # White border
         
         # Draw quest marker prominently (always visible, even if not explored) - only if quest is active
         if self.current_quest and not self.in_quest_location:
@@ -475,45 +581,61 @@ class PlayScreen:
                     quest_center_x = quest_screen_x + self.map_view_tile_size // 2
                     quest_center_y = quest_screen_y + self.map_view_tile_size // 2
                     
-                    # Draw a large, prominent quest marker (star/pentagon)
-                    size = max(12, self.map_view_tile_size * 2)  # Large size for prominence
-                    quest_color = (255, 255, 0)  # Bright yellow
-                    glow_color = (255, 200, 0)  # Orange-yellow glow
-                    
-                    # Draw glow effect (larger outer circle)
-                    pygame.draw.circle(map_surface, glow_color, (quest_center_x, quest_center_y), size // 2 + 3)
-                    
-                    # Draw pentagon/star
-                    points = []
-                    for i in range(5):
-                        angle = (i * 2 * math.pi / 5) - (math.pi / 2)
-                        px = quest_center_x + size // 2 * math.cos(angle)
-                        py = quest_center_y + size // 2 * math.sin(angle)
-                        points.append((px, py))
-                    
-                    pygame.draw.polygon(map_surface, quest_color, points)
-                    pygame.draw.polygon(map_surface, (255, 255, 255), points, 2)  # White border for contrast
+                # Don't use sprites in zoomed-out map view - use original shapes
+                # Fall back to shape drawing
+                if False:  # Disabled sprite rendering for map view
+                    pass
+                else:
+                        # Fall back to shape drawing
+                        size = max(12, self.map_view_tile_size * 2)  # Large size for prominence
+                        quest_color = (255, 255, 0)  # Bright yellow
+                        glow_color = (255, 200, 0)  # Orange-yellow glow
+                        
+                        # Draw glow effect (larger outer circle)
+                        pygame.draw.circle(map_surface, glow_color, (quest_center_x, quest_center_y), size // 2 + 3)
+                        
+                        # Draw pentagon/star
+                        points = []
+                        for i in range(5):
+                            angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                            px = quest_center_x + size // 2 * math.cos(angle)
+                            py = quest_center_y + size // 2 * math.sin(angle)
+                            points.append((px, py))
+                        
+                        pygame.draw.polygon(map_surface, quest_color, points)
+                        pygame.draw.polygon(map_surface, (255, 255, 255), points, 2)  # White border for contrast
         
-        # Draw player position
+        # Draw player position - use sprite if available
         if (self.player_x, self.player_y) in self.explored_tiles:
             player_screen_x = (self.player_x - self.map_view_camera_x) * self.map_view_tile_size
             player_screen_y = (self.player_y - self.map_view_camera_y) * self.map_view_tile_size
             if 0 <= player_screen_x < self.map_view_width and 0 <= player_screen_y < self.map_view_height:
-                pygame.draw.circle(map_surface, (255, 0, 0), 
-                                 (player_screen_x + self.map_view_tile_size // 2, 
-                                  player_screen_y + self.map_view_tile_size // 2),
-                                 max(3, self.map_view_tile_size // 2))
-                pygame.draw.circle(map_surface, (255, 255, 255),
-                                 (player_screen_x + self.map_view_tile_size // 2,
-                                  player_screen_y + self.map_view_tile_size // 2),
-                                 max(3, self.map_view_tile_size // 2), 1)
+                center_x = player_screen_x + self.map_view_tile_size // 2
+                center_y = player_screen_y + self.map_view_tile_size // 2
+                
+                # Don't use sprites in zoomed-out map view - use original shapes
+                # Fall back to shape drawing
+                if False:  # Disabled sprite rendering for map view
+                    pass
+                else:
+                    # Fall back to shape drawing
+                    pygame.draw.circle(map_surface, (255, 0, 0), 
+                                     (center_x, center_y),
+                                     max(3, self.map_view_tile_size // 2))
+                    pygame.draw.circle(map_surface, (255, 255, 255),
+                                     (center_x, center_y),
+                                     max(3, self.map_view_tile_size // 2), 1)
         
         self.screen.blit(map_surface, (0, 0))
+        
+        # Draw celtic knot border around map view
+        map_view_rect = pygame.Rect(0, 0, self.map_view_width, self.map_view_height)
+        draw_celtic_knot_border(self.screen, map_view_rect, (150, 150, 150), 3)
         
         # Draw status area (right 1x2) - show map view instructions
         status_rect = pygame.Rect(self.map_view_width, 0, self.status_width, self.status_height)
         pygame.draw.rect(self.screen, (20, 20, 30), status_rect)
-        pygame.draw.rect(self.screen, (100, 100, 100), status_rect, 2)
+        # Note: Border will be drawn after all content to ensure it's on top
         
         font = pygame.font.Font(None, 24)
         title_font = pygame.font.Font(None, 28)
@@ -533,6 +655,9 @@ class PlayScreen:
             text_surface = font.render(instruction, True, (200, 200, 200))
             self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
             y_offset += 25
+        
+        # Draw celtic knot border around status area (after all content so it's on top)
+        draw_celtic_knot_border(self.screen, status_rect, (150, 150, 150), 3)
     
     def move_player(self, direction: str):
         """
@@ -812,8 +937,9 @@ class PlayScreen:
             
             # Calculate viewport size in tiles
             # Viewport shows tiles: map_view_width / tile_size by map_view_height / tile_size
-            viewport_width_tiles = self.map_view_width // self.tile_size
-            viewport_height_tiles = self.map_view_height // self.tile_size
+            # Add 2 extra tiles (matching renderer) to ensure full coverage including partial tiles
+            viewport_width_tiles = (self.map_view_width // self.tile_size) + 2
+            viewport_height_tiles = (self.map_view_height // self.tile_size) + 2
             
             # Calculate the rectangular bounds of the viewport centered on the player
             # Half-width and half-height from center
@@ -1242,7 +1368,57 @@ class PlayScreen:
                             leader_name = wb_data['leader']['name']
                         
                         target_item = self.current_quest.get('target_item', 'item')
-                        self.add_command_message(f"{leader_name}: Thank you for retrieving the {target_item.lower()}! You have our gratitude.")
+                        
+                        # List of appreciation statements
+                        appreciation_statements = [
+                            "We are indebted to you!",
+                            "Your service will not be forgotten!",
+                            "You have our eternal gratitude!",
+                            "The people of this settlement owe you a great debt!",
+                            "May the gods bless you for your kindness!",
+                            "You have proven yourself a true friend!",
+                            "We shall sing your praises for generations!",
+                            "Your courage and dedication inspire us all!",
+                            "The entire settlement is in your debt!",
+                            "You have brought honor to our people!",
+                            "We are forever grateful for your aid!",
+                            "Your name will be remembered with reverence!",
+                            "You have done us a great service!",
+                            "The spirits themselves smile upon you!",
+                            "We could not have done this without you!",
+                            "Your generosity knows no bounds!",
+                            "You have earned our deepest respect!",
+                            "The bards will sing of your deeds!",
+                            "We are blessed to have such a friend!",
+                            "Your actions have saved us from hardship!",
+                            "May fortune favor you always!",
+                            "You have shown the true meaning of honor!",
+                            "Our children will learn of your bravery!",
+                            "You have brought light to our darkest hour!",
+                            "We shall raise a toast in your name!",
+                            "Your kindness has touched all our hearts!",
+                            "You have proven yourself a hero!",
+                            "The ancestors smile upon your deeds!",
+                            "We are humbled by your selflessness!",
+                            "Your name will be carved in our memory!",
+                            "You have restored our faith in humanity!",
+                            "We shall tell stories of your valor!",
+                            "Your help came when we needed it most!",
+                            "The gods themselves would be proud!",
+                            "You have earned a place in our hearts!",
+                            "We are honored to call you friend!",
+                            "Your deeds will echo through the ages!",
+                            "You have shown us what true heroism means!",
+                            "We are forever in your service!",
+                            "May your path be ever blessed!"
+                        ]
+                        
+                        # Randomly select an appreciation statement
+                        import random
+                        appreciation = random.choice(appreciation_statements)
+                        
+                        # Format: "Thank you for retrieving {item}!" {leader} shouts. "{statement}"
+                        self.add_command_message(f"\"Thank you for retrieving {target_item.lower()}!\" {leader_name} shouts. \"{appreciation}\"")
                         
                         # Update renown: +3 for completing quest (in addition to +2 for accepting = +5 total)
                         settlement_key = (sx, sy)
@@ -1255,6 +1431,7 @@ class PlayScreen:
                         completed_quest['quest_status'] = 'completed'
                         completed_quest['status'] = 'completed'
                         completed_quest['completed_at'] = self.calendar.get_full_datetime_string()
+                        completed_quest['archived_at'] = self.calendar.get_full_datetime_string()  # Also save as archived_at for consistency
                         self.quest_archive.append(completed_quest)
                         
                         # Clear current quest
@@ -1262,15 +1439,77 @@ class PlayScreen:
                         self.quest_item_location = None
                         break
                 
-                # Offer quest if player doesn't have one, just landed on this settlement, and it's a village
+                # Offer quest if player doesn't have one, just landed on this settlement, and settlement can offer quests
                 if (not self.current_quest and settlement != prev_settlement and 
-                    settlement.settlement_type == SettlementType.VILLAGE):
-                    self.quest_offer_settlement = settlement
+                    self._can_settlement_offer_quest(settlement)):
+                    # Check renown level for this settlement
+                    settlement_key = (sx, sy)
+                    if not hasattr(self, 'settlement_renown'):
+                        self.settlement_renown = {}
+                    if settlement_key not in self.settlement_renown:
+                        self.settlement_renown[settlement_key] = 0
+                    renown = max(0, self.settlement_renown.get(settlement_key, 0))
+                    
                     wb_data = self._find_settlement_worldbuilding_data(settlement)
                     leader_name = "Unknown Leader"
                     if wb_data and 'leader' in wb_data and 'name' in wb_data['leader']:
                         leader_name = wb_data['leader']['name']
-                    self.add_command_message(f"{leader_name}: Will you help us by completing a quest? (Y/N)")
+                    
+                    # If player is a local hero (renown > 15), give heroic welcome instead of quest offer
+                    # Note: For towns and cities, this checks their own renown, not their vassals'
+                    if renown > 15:
+                        # List of heroic welcome statements
+                        heroic_welcomes = [
+                            "It is wonderful to see you here!",
+                            "Your presence brings honor to our settlement!",
+                            "We are blessed by your visit!",
+                            "The people rejoice at your arrival!",
+                            "Your legend precedes you!",
+                            "We are honored by your presence!",
+                            "The gods smile upon us with your coming!",
+                            "Your name is spoken with reverence here!",
+                            "We are privileged to welcome you!",
+                            "Your arrival brightens our day!",
+                            "The settlement is honored by your visit!",
+                            "We are fortunate to have you among us!",
+                            "Your presence fills us with pride!",
+                            "The bards sing of your arrival!",
+                            "We are humbled by your greatness!",
+                            "Your visit is a gift to us all!",
+                            "The ancestors smile upon your return!",
+                            "We are blessed to see you again!",
+                            "Your legend grows with each visit!",
+                            "The people gather to see the hero!",
+                            "We are honored to stand in your presence!",
+                            "Your name brings hope to our hearts!",
+                            "The settlement celebrates your arrival!",
+                            "We are privileged to call you friend!",
+                            "Your presence inspires us all!",
+                            "The gods themselves welcome you!",
+                            "We are fortunate to witness your greatness!",
+                            "Your visit brings joy to our people!",
+                            "The bards will sing of this day!",
+                            "We are honored beyond measure!",
+                            "Your presence is a blessing!",
+                            "The settlement is made greater by your visit!",
+                            "We are humbled by your generosity!",
+                            "Your legend lives in our hearts!",
+                            "The people are honored by your presence!",
+                            "We are blessed to have such a hero!",
+                            "Your arrival is a cause for celebration!",
+                            "The ancestors welcome you home!",
+                            "We are privileged to know you!",
+                            "Your greatness shines upon us all!"
+                        ]
+                        
+                        # Randomly select a heroic welcome
+                        import random
+                        heroic_welcome = random.choice(heroic_welcomes)
+                        self.add_command_message(f"\"Hail again!\" {leader_name} shouts. \"{heroic_welcome}\"")
+                    else:
+                        # Normal quest offer
+                        self.quest_offer_settlement = settlement
+                        self.add_command_message(f"\"Welcome, adventurer!\" {leader_name} says. \"Might you help us by completing a small job? It should not be too dangerous!\" (Y/N)")
                 break
     
     def _find_settlement_worldbuilding_data(self, settlement: Settlement) -> Optional[Dict]:
@@ -1610,11 +1849,11 @@ class PlayScreen:
                                     archived_quest['status'] = 'dropped'
                                     archived_quest['archived_at'] = self.calendar.get_full_datetime_string()
                                     self.quest_archive.append(archived_quest)
-                                    # Update renown: -2 for dropping quest
+                                    # Update renown: -5 for dropping quest
                                     quest_giver_coords = archived_quest.get('quest_giver_coords')
                                     if quest_giver_coords:
                                         settlement_key = tuple(quest_giver_coords)
-                                        self._update_settlement_renown(settlement_key, -2)
+                                        self._update_settlement_renown(settlement_key, -5)
                                     self.add_command_message("> D")
                                     self.add_command_message(f"Quest from {leader_name} dropped")
                                     self.current_quest = None
@@ -1693,7 +1932,7 @@ class PlayScreen:
                                         settlement_key = tuple(quest_giver_coords)
                                         if settlement_key not in self.settlement_renown:
                                             self.settlement_renown[settlement_key] = 0
-                                        self.settlement_renown[settlement_key] = max(0, self.settlement_renown[settlement_key] - 2)
+                                        self._update_settlement_renown(settlement_key, -5)
                                     leader_name = self.current_quest.get('leader_name', 'Unknown Leader')
                                     self.add_command_message(f"Quest from {leader_name} dropped")
                                     self.current_quest = None
@@ -1775,6 +2014,13 @@ class PlayScreen:
                         self.showing_tileset_selection = True
                         self.tileset_selection_screen = TilesetSelectionScreen(self.screen)
                         command_executed = True
+                    elif event.key == pygame.K_r:
+                        # Renown - view renown for all settlements
+                        self.add_command_message("> Renown")
+                        import pygame as pg
+                        temp_clock = pg.time.Clock()
+                        show_renown_dialog(self.screen, temp_clock, self.settlements, self.settlement_renown)
+                        command_executed = True
                     elif event.key == pygame.K_j:
                         # Journal - view current quest
                         self.add_command_message("> Journal")
@@ -1799,9 +2045,7 @@ class PlayScreen:
                                 quest_giver_coords = archived_quest.get('quest_giver_coords')
                                 if quest_giver_coords:
                                     settlement_key = tuple(quest_giver_coords)
-                                    if settlement_key not in self.settlement_renown:
-                                        self.settlement_renown[settlement_key] = 0
-                                    self.settlement_renown[settlement_key] = max(0, self.settlement_renown[settlement_key] - 2)
+                                    self._update_settlement_renown(settlement_key, -5)
                                 leader_name = self.current_quest.get('leader_name', 'Unknown Leader')
                                 self.add_command_message(f"Quest from {leader_name} dropped")
                                 self.current_quest = None
@@ -2074,52 +2318,55 @@ class PlayScreen:
             # Render quest location map
             camera_x_int = int(self.camera_x)
             camera_y_int = int(self.camera_y)
+            # Get player render position (with smooth interpolation during movement)
+            player_tile_x, player_tile_y = self.get_player_render_position()
+            player_position = (int(player_tile_x), int(player_tile_y))
             # Use normal explored/visible tiles for fog of war
             self.renderer.render_map(self.quest_location_map, map_surface, quest_marker=None,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
                                     settlements=[], explored_tiles=self.explored_tiles, visible_tiles=self.visible_tiles, caravans=[],
-                                    is_quest_location=True)
+                                    player_position=player_position, is_quest_location=True)
             
             # Draw quest item marker if item hasn't been found
             if self.quest_item_location and not self.current_quest.get('item_found', False):
                 item_x, item_y = self.quest_item_location
-                import sys
-                print(f"DEBUG RENDER: Quest item at ({item_x}, {item_y}), visible_tiles check: {(item_x, item_y) in self.visible_tiles}", file=sys.stderr, flush=True)
-                print(f"DEBUG RENDER: visible_tiles count: {len(self.visible_tiles)}, explored_tiles count: {len(self.explored_tiles)}", file=sys.stderr, flush=True)
-                print(f"DEBUG RENDER: Player at ({self.player_x}, {self.player_y}), camera at ({camera_x_int}, {camera_y_int})", file=sys.stderr, flush=True)
                 # Only render if the tile is visible (not darkened by fog of war)
                 if (item_x, item_y) in self.visible_tiles:
                     # Calculate screen position
                     screen_x = (item_x - camera_x_int) * self.tile_size
                     screen_y = (item_y - camera_y_int) * self.tile_size
-                    import sys
-                    print(f"DEBUG RENDER: Screen position: ({screen_x}, {screen_y}), viewport: {self.map_view_width}x{self.map_view_height}", file=sys.stderr, flush=True)
-                    # Draw item marker (golden star/glow)
+                    # Draw item marker using loot sprite
                     if 0 <= screen_x < self.map_view_width and 0 <= screen_y < self.map_view_height:
-                        import sys
-                        print(f"DEBUG RENDER: Rendering quest item marker at screen ({screen_x}, {screen_y})", file=sys.stderr, flush=True)
                         center_x = screen_x + self.tile_size // 2
                         center_y = screen_y + self.tile_size // 2
-                        # Draw golden glow
-                        import math
-                        glow_size = self.tile_size // 2
-                        for i in range(3):
-                            alpha = 200 - i * 50
-                            glow_radius = glow_size + i * 2
-                            glow_surface = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
-                            pygame.draw.circle(glow_surface, (255, 215, 0, alpha), (glow_radius, glow_radius), glow_radius)
-                            map_surface.blit(glow_surface, (center_x - glow_radius, center_y - glow_radius), special_flags=pygame.BLEND_ALPHA_SDL2)
-                        # Draw star/pentagon
-                        star_size = self.tile_size // 3
-                        star_color = (255, 255, 0)  # Bright yellow
-                        points = []
-                        for i in range(5):
-                            angle = (i * 2 * math.pi / 5) - (math.pi / 2)
-                            px = center_x + star_size * math.cos(angle)
-                            py = center_y + star_size * math.sin(angle)
-                            points.append((px, py))
-                        pygame.draw.polygon(map_surface, star_color, points)
-                        pygame.draw.polygon(map_surface, (255, 200, 0), points, 2)  # Orange border
+                        # Try tileset first, then fall back to sprite
+                        entity_tile = self.renderer._get_entity_tile_surface('loot')
+                        if entity_tile:
+                            # Use tileset tile at 100% size
+                            entity_rect = entity_tile.get_rect(center=(center_x, center_y))
+                            map_surface.blit(entity_tile, entity_rect)
+                        elif 'loot' in self.renderer.sprite_cache:
+                            # Fall back to sprite with appropriate scaling
+                            sprite_surface = self.renderer.sprite_cache['loot']
+                            scale = self.renderer.sprite_scales.get('loot', 1.0)
+                            if scale != 1.0:
+                                scaled_size = (int(sprite_surface.get_width() * scale), int(sprite_surface.get_height() * scale))
+                                sprite_surface = pygame.transform.scale(sprite_surface, scaled_size)
+                            sprite_rect = sprite_surface.get_rect(center=(center_x, center_y))
+                            map_surface.blit(sprite_surface, sprite_rect)
+                        else:
+                            # Fall back to shape drawing
+                            import math
+                            star_size = self.tile_size // 3
+                            star_color = (255, 255, 0)  # Bright yellow
+                            points = []
+                            for i in range(5):
+                                angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                                px = center_x + star_size * math.cos(angle)
+                                py = center_y + star_size * math.sin(angle)
+                                points.append((px, py))
+                            pygame.draw.polygon(map_surface, star_color, points)
+                            pygame.draw.polygon(map_surface, (255, 200, 0), points, 2)  # Orange border
         else:
             # Render overland map
             # Convert camera position to integers for rendering (tiles are discrete)
@@ -2134,33 +2381,26 @@ class PlayScreen:
                     quest_x, quest_y = self.current_quest['quest_coordinates']
                     quest_marker = (quest_x, quest_y)
             
+            # Get player render position (with smooth interpolation during movement)
+            player_tile_x, player_tile_y = self.get_player_render_position()
+            player_position = (int(player_tile_x), int(player_tile_y))
+            
             self.renderer.render_map(self.map_data, map_surface, quest_marker=quest_marker,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
                                     settlements=self.settlements, explored_tiles=self.explored_tiles, 
-                                visible_tiles=self.visible_tiles, caravans=self.caravans)
-        
-        # Draw player marker on map (with smooth interpolation during movement)
-        player_tile_x, player_tile_y = self.get_player_render_position()
-        player_screen_x = (player_tile_x - self.camera_x) * self.tile_size
-        player_screen_y = (player_tile_y - self.camera_y) * self.tile_size
-        
-        if 0 <= player_screen_x < self.map_view_width and 0 <= player_screen_y < self.map_view_height:
-            # Draw player as a colored circle
-            pygame.draw.circle(map_surface, (255, 0, 0), 
-                             (int(player_screen_x + self.tile_size // 2), 
-                              int(player_screen_y + self.tile_size // 2)),
-                             self.tile_size // 3)
-            pygame.draw.circle(map_surface, (255, 255, 255),
-                             (int(player_screen_x + self.tile_size // 2),
-                              int(player_screen_y + self.tile_size // 2)),
-                             self.tile_size // 3, 2)
+                                visible_tiles=self.visible_tiles, caravans=self.caravans,
+                                player_position=player_position)
         
         self.screen.blit(map_surface, (0, 0))
+        
+        # Draw celtic knot border around map view
+        map_view_rect = pygame.Rect(0, 0, self.map_view_width, self.map_view_height)
+        draw_celtic_knot_border(self.screen, map_view_rect, (150, 150, 150), 3)
         
         # Draw status area (right 1x2)
         status_rect = pygame.Rect(self.map_view_width, 0, self.status_width, self.status_height)
         pygame.draw.rect(self.screen, (20, 20, 30), status_rect)
-        pygame.draw.rect(self.screen, (100, 100, 100), status_rect, 2)
+        # Note: Border will be drawn after all content to ensure it's on top
         
         # Draw status messages
         font = pygame.font.Font(None, 24)
@@ -2251,6 +2491,10 @@ class PlayScreen:
                     leader_name = leader['name']
                 if 'biography' in leader:
                     leader_bio = leader['biography']
+                    # Make first letter lowercase and remove trailing period
+                    if leader_bio:
+                        leader_bio = leader_bio[0].lower() + leader_bio[1:] if len(leader_bio) > 1 else leader_bio.lower()
+                        leader_bio = leader_bio.rstrip('.')
             
             # Format based on settlement type
             if settlement.settlement_type == SettlementType.VILLAGE:
@@ -2315,6 +2559,9 @@ class PlayScreen:
                 self.settlement_renown[settlement_key] = 0
             renown = max(0, self.settlement_renown.get(settlement_key, 0))
             renown_description = self._get_renown_description(renown)
+            # Add period at the end if not present
+            if renown_description and not renown_description.endswith('.'):
+                renown_description = renown_description + '.'
             formatted_lines.append((renown_description, desc_font, (255, 255, 150)))  # Yellow
             
             # Render all formatted lines with word wrapping
@@ -2365,10 +2612,15 @@ class PlayScreen:
                     self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
                     y_offset += 25
         
+        # Draw celtic knot border around status area (after all content so it's on top)
+        status_rect = pygame.Rect(self.map_view_width, 0, self.status_width, self.status_height)
+        draw_celtic_knot_border(self.screen, status_rect, (150, 150, 150), 3)
+        
         # Draw command/results area (bottom 1x3) - terminal style
         command_rect = pygame.Rect(0, self.map_view_height, self.command_width, self.command_height)
         pygame.draw.rect(self.screen, (10, 10, 15), command_rect)  # Darker background for terminal feel
-        pygame.draw.rect(self.screen, (50, 50, 50), command_rect, 2)
+        # Draw celtic knot border around command area
+        draw_celtic_knot_border(self.screen, command_rect, (150, 150, 150), 3)
         
         # Terminal-style message log
         font = pygame.font.Font(None, 20)  # Monospace-like font size
@@ -2406,7 +2658,7 @@ class PlayScreen:
                 leader_name = "Unknown Leader"
                 if wb_data and 'leader' in wb_data and 'name' in wb_data['leader']:
                     leader_name = wb_data['leader']['name']
-                prompt_text = f"{leader_name}: Will you help us by completing a quest? (Y/N)"
+                prompt_text = f"\"Welcome, adventurer!\" {leader_name} says. \"Might you help us by completing a small job? It should not be too dangerous!\" (Y/N)"
                 prompt_surface = font.render(prompt_text, True, (255, 255, 100))  # Yellow
                 self.screen.blit(prompt_surface, (10, y_offset))
             elif self.pending_prompt == 'journal':
@@ -2678,42 +2930,6 @@ class PlayScreen:
         # Add message about leaving quest area
         self.add_command_message("Leaving quest location...")
     
-    def _update_settlement_renown(self, settlement_key: tuple, delta: int) -> None:
-        """
-        Update renown for a settlement, ensuring it never goes below 0.
-        
-        Args:
-            settlement_key: Tuple of (x, y) coordinates for the settlement
-            delta: Change in renown (positive or negative)
-        """
-        if not hasattr(self, 'settlement_renown'):
-            self.settlement_renown = {}
-        if settlement_key not in self.settlement_renown:
-            self.settlement_renown[settlement_key] = 0
-        self.settlement_renown[settlement_key] = max(0, self.settlement_renown[settlement_key] + delta)
-    
-    def _get_renown_description(self, renown: int) -> str:
-        """
-        Get a description of the player's renown level with a settlement.
-        
-        Args:
-            renown: The renown value
-            
-        Returns:
-            Description string
-        """
-        # Ensure renown is never negative
-        renown = max(0, renown)
-        if renown < 6:
-            return "You are practically a stranger"
-        elif renown <= 10:
-            return "You are a friend"
-        elif renown <= 15:
-            return "You are an honorary clan member"
-        else:
-            return "You are a local hero"
-
-
     def update(self, dt: float):
         """
         Update game state (movement animation, etc.).
@@ -2753,52 +2969,55 @@ class PlayScreen:
             # Render quest location map
             camera_x_int = int(self.camera_x)
             camera_y_int = int(self.camera_y)
+            # Get player render position (with smooth interpolation during movement)
+            player_tile_x, player_tile_y = self.get_player_render_position()
+            player_position = (int(player_tile_x), int(player_tile_y))
             # Use normal explored/visible tiles for fog of war
             self.renderer.render_map(self.quest_location_map, map_surface, quest_marker=None,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
                                     settlements=[], explored_tiles=self.explored_tiles, visible_tiles=self.visible_tiles, caravans=[],
-                                    is_quest_location=True)
+                                    player_position=player_position, is_quest_location=True)
             
             # Draw quest item marker if item hasn't been found
             if self.quest_item_location and not self.current_quest.get('item_found', False):
                 item_x, item_y = self.quest_item_location
-                import sys
-                print(f"DEBUG RENDER: Quest item at ({item_x}, {item_y}), visible_tiles check: {(item_x, item_y) in self.visible_tiles}", file=sys.stderr, flush=True)
-                print(f"DEBUG RENDER: visible_tiles count: {len(self.visible_tiles)}, explored_tiles count: {len(self.explored_tiles)}", file=sys.stderr, flush=True)
-                print(f"DEBUG RENDER: Player at ({self.player_x}, {self.player_y}), camera at ({camera_x_int}, {camera_y_int})", file=sys.stderr, flush=True)
                 # Only render if the tile is visible (not darkened by fog of war)
                 if (item_x, item_y) in self.visible_tiles:
                     # Calculate screen position
                     screen_x = (item_x - camera_x_int) * self.tile_size
                     screen_y = (item_y - camera_y_int) * self.tile_size
-                    import sys
-                    print(f"DEBUG RENDER: Screen position: ({screen_x}, {screen_y}), viewport: {self.map_view_width}x{self.map_view_height}", file=sys.stderr, flush=True)
-                    # Draw item marker (golden star/glow)
+                    # Draw item marker using loot sprite
                     if 0 <= screen_x < self.map_view_width and 0 <= screen_y < self.map_view_height:
-                        import sys
-                        print(f"DEBUG RENDER: Rendering quest item marker at screen ({screen_x}, {screen_y})", file=sys.stderr, flush=True)
                         center_x = screen_x + self.tile_size // 2
                         center_y = screen_y + self.tile_size // 2
-                        # Draw golden glow
-                        import math
-                        glow_size = self.tile_size // 2
-                        for i in range(3):
-                            alpha = 200 - i * 50
-                            glow_radius = glow_size + i * 2
-                            glow_surface = pygame.Surface((glow_radius * 2, glow_radius * 2), pygame.SRCALPHA)
-                            pygame.draw.circle(glow_surface, (255, 215, 0, alpha), (glow_radius, glow_radius), glow_radius)
-                            map_surface.blit(glow_surface, (center_x - glow_radius, center_y - glow_radius), special_flags=pygame.BLEND_ALPHA_SDL2)
-                        # Draw star/pentagon
-                        star_size = self.tile_size // 3
-                        star_color = (255, 255, 0)  # Bright yellow
-                        points = []
-                        for i in range(5):
-                            angle = (i * 2 * math.pi / 5) - (math.pi / 2)
-                            px = center_x + star_size * math.cos(angle)
-                            py = center_y + star_size * math.sin(angle)
-                            points.append((px, py))
-                        pygame.draw.polygon(map_surface, star_color, points)
-                        pygame.draw.polygon(map_surface, (255, 200, 0), points, 2)  # Orange border
+                        # Try tileset first, then fall back to sprite
+                        entity_tile = self.renderer._get_entity_tile_surface('loot')
+                        if entity_tile:
+                            # Use tileset tile at 100% size
+                            entity_rect = entity_tile.get_rect(center=(center_x, center_y))
+                            map_surface.blit(entity_tile, entity_rect)
+                        elif 'loot' in self.renderer.sprite_cache:
+                            # Fall back to sprite with appropriate scaling
+                            sprite_surface = self.renderer.sprite_cache['loot']
+                            scale = self.renderer.sprite_scales.get('loot', 1.0)
+                            if scale != 1.0:
+                                scaled_size = (int(sprite_surface.get_width() * scale), int(sprite_surface.get_height() * scale))
+                                sprite_surface = pygame.transform.scale(sprite_surface, scaled_size)
+                            sprite_rect = sprite_surface.get_rect(center=(center_x, center_y))
+                            map_surface.blit(sprite_surface, sprite_rect)
+                        else:
+                            # Fall back to shape drawing
+                            import math
+                            star_size = self.tile_size // 3
+                            star_color = (255, 255, 0)  # Bright yellow
+                            points = []
+                            for i in range(5):
+                                angle = (i * 2 * math.pi / 5) - (math.pi / 2)
+                                px = center_x + star_size * math.cos(angle)
+                                py = center_y + star_size * math.sin(angle)
+                                points.append((px, py))
+                            pygame.draw.polygon(map_surface, star_color, points)
+                            pygame.draw.polygon(map_surface, (255, 200, 0), points, 2)  # Orange border
         else:
             # Render overland map
             # Convert camera position to integers for rendering (tiles are discrete)
@@ -2813,33 +3032,26 @@ class PlayScreen:
                     quest_x, quest_y = self.current_quest['quest_coordinates']
                     quest_marker = (quest_x, quest_y)
             
+            # Get player render position (with smooth interpolation during movement)
+            player_tile_x, player_tile_y = self.get_player_render_position()
+            player_position = (int(player_tile_x), int(player_tile_y))
+            
             self.renderer.render_map(self.map_data, map_surface, quest_marker=quest_marker,
                                     camera_x=camera_x_int, camera_y=camera_y_int, 
                                     settlements=self.settlements, explored_tiles=self.explored_tiles, 
-                                visible_tiles=self.visible_tiles, caravans=self.caravans)
-        
-        # Draw player marker on map (with smooth interpolation during movement)
-        player_tile_x, player_tile_y = self.get_player_render_position()
-        player_screen_x = (player_tile_x - self.camera_x) * self.tile_size
-        player_screen_y = (player_tile_y - self.camera_y) * self.tile_size
-        
-        if 0 <= player_screen_x < self.map_view_width and 0 <= player_screen_y < self.map_view_height:
-            # Draw player as a colored circle
-            pygame.draw.circle(map_surface, (255, 0, 0), 
-                             (int(player_screen_x + self.tile_size // 2), 
-                              int(player_screen_y + self.tile_size // 2)),
-                             self.tile_size // 3)
-            pygame.draw.circle(map_surface, (255, 255, 255),
-                             (int(player_screen_x + self.tile_size // 2),
-                              int(player_screen_y + self.tile_size // 2)),
-                             self.tile_size // 3, 2)
+                                visible_tiles=self.visible_tiles, caravans=self.caravans,
+                                player_position=player_position)
         
         self.screen.blit(map_surface, (0, 0))
+        
+        # Draw celtic knot border around map view
+        map_view_rect = pygame.Rect(0, 0, self.map_view_width, self.map_view_height)
+        draw_celtic_knot_border(self.screen, map_view_rect, (150, 150, 150), 3)
         
         # Draw status area (right 1x2)
         status_rect = pygame.Rect(self.map_view_width, 0, self.status_width, self.status_height)
         pygame.draw.rect(self.screen, (20, 20, 30), status_rect)
-        pygame.draw.rect(self.screen, (100, 100, 100), status_rect, 2)
+        # Note: Border will be drawn after all content to ensure it's on top
         
         # Draw status messages
         font = pygame.font.Font(None, 24)
@@ -2930,6 +3142,10 @@ class PlayScreen:
                     leader_name = leader['name']
                 if 'biography' in leader:
                     leader_bio = leader['biography']
+                    # Make first letter lowercase and remove trailing period
+                    if leader_bio:
+                        leader_bio = leader_bio[0].lower() + leader_bio[1:] if len(leader_bio) > 1 else leader_bio.lower()
+                        leader_bio = leader_bio.rstrip('.')
             
             # Format based on settlement type
             if settlement.settlement_type == SettlementType.VILLAGE:
@@ -2994,6 +3210,9 @@ class PlayScreen:
                 self.settlement_renown[settlement_key] = 0
             renown = max(0, self.settlement_renown.get(settlement_key, 0))
             renown_description = self._get_renown_description(renown)
+            # Add period at the end if not present
+            if renown_description and not renown_description.endswith('.'):
+                renown_description = renown_description + '.'
             formatted_lines.append((renown_description, desc_font, (255, 255, 150)))  # Yellow
             
             # Render all formatted lines with word wrapping
@@ -3044,10 +3263,15 @@ class PlayScreen:
                     self.screen.blit(text_surface, (self.map_view_width + 10, y_offset))
                     y_offset += 25
         
+        # Draw celtic knot border around status area (after all content so it's on top)
+        status_rect = pygame.Rect(self.map_view_width, 0, self.status_width, self.status_height)
+        draw_celtic_knot_border(self.screen, status_rect, (150, 150, 150), 3)
+        
         # Draw command/results area (bottom 1x3) - terminal style
         command_rect = pygame.Rect(0, self.map_view_height, self.command_width, self.command_height)
         pygame.draw.rect(self.screen, (10, 10, 15), command_rect)  # Darker background for terminal feel
-        pygame.draw.rect(self.screen, (50, 50, 50), command_rect, 2)
+        # Draw celtic knot border around command area
+        draw_celtic_knot_border(self.screen, command_rect, (150, 150, 150), 3)
         
         # Terminal-style message log
         font = pygame.font.Font(None, 20)  # Monospace-like font size
@@ -3085,7 +3309,7 @@ class PlayScreen:
                 leader_name = "Unknown Leader"
                 if wb_data and 'leader' in wb_data and 'name' in wb_data['leader']:
                     leader_name = wb_data['leader']['name']
-                prompt_text = f"{leader_name}: Will you help us by completing a quest? (Y/N)"
+                prompt_text = f"\"Welcome, adventurer!\" {leader_name} says. \"Might you help us by completing a small job? It should not be too dangerous!\" (Y/N)"
                 prompt_surface = font.render(prompt_text, True, (255, 255, 100))  # Yellow
                 self.screen.blit(prompt_surface, (10, y_offset))
             elif self.pending_prompt == 'journal':
@@ -3144,7 +3368,7 @@ class PlayScreen:
     
     def _update_settlement_renown(self, settlement_key: tuple, delta: int) -> None:
         """
-        Update renown for a settlement, ensuring it never goes below 0.
+        Update renown for a settlement (can go below 0).
         
         Args:
             settlement_key: Tuple of (x, y) coordinates for the settlement
@@ -3154,7 +3378,7 @@ class PlayScreen:
             self.settlement_renown = {}
         if settlement_key not in self.settlement_renown:
             self.settlement_renown[settlement_key] = 0
-        self.settlement_renown[settlement_key] = max(0, self.settlement_renown[settlement_key] + delta)
+        self.settlement_renown[settlement_key] = self.settlement_renown[settlement_key] + delta
     
     def _get_renown_description(self, renown: int) -> str:
         """
@@ -3169,11 +3393,67 @@ class PlayScreen:
         # Ensure renown is never negative
         renown = max(0, renown)
         if renown < 6:
-            return "You are practically a stranger"
+            return "The folk here view you with suspicion."
         elif renown <= 10:
             return "You are a friend"
         elif renown <= 15:
             return "You are an honorary clan member"
         else:
             return "You are a local hero"
+    
+    def _can_settlement_offer_quest(self, settlement: Settlement) -> bool:
+        """
+        Check if a settlement can offer quests based on renown requirements.
+        
+        Rules:
+        - Villages: Always can offer quests (no requirement)
+        - Towns: Can offer quests only if ALL vassal villages have renown > 15 (local hero)
+        - Cities: Can offer quests only if ALL vassal towns have renown > 15 (local hero)
+        
+        Args:
+            settlement: The settlement to check
+            
+        Returns:
+            True if the settlement can offer quests, False otherwise
+        """
+        if not hasattr(self, 'settlement_renown'):
+            self.settlement_renown = {}
+        
+        # Villages can always offer quests
+        if settlement.settlement_type == SettlementType.VILLAGE:
+            return True
+        
+        # Towns: Check if all vassal villages are at local hero level
+        if settlement.settlement_type == SettlementType.TOWN:
+            if not hasattr(settlement, 'vassal_villages') or not settlement.vassal_villages:
+                return False  # No vassal villages, can't offer quests
+            
+            for village in settlement.vassal_villages:
+                village_key = (village.x, village.y)
+                if village_key not in self.settlement_renown:
+                    self.settlement_renown[village_key] = 0
+                village_renown = self.settlement_renown.get(village_key, 0)
+                # Renown can be negative, but we need > 15 for local hero level
+                if village_renown <= 15:  # Not at local hero level
+                    return False
+            
+            return True  # All vassal villages are at local hero level
+        
+        # Cities: Check if all vassal towns are at local hero level
+        if settlement.settlement_type == SettlementType.CITY:
+            if not hasattr(settlement, 'vassal_towns') or not settlement.vassal_towns:
+                return False  # No vassal towns, can't offer quests
+            
+            for town in settlement.vassal_towns:
+                town_key = (town.x, town.y)
+                if town_key not in self.settlement_renown:
+                    self.settlement_renown[town_key] = 0
+                town_renown = self.settlement_renown.get(town_key, 0)
+                # Renown can be negative, but we need > 15 for local hero level
+                if town_renown <= 15:  # Not at local hero level
+                    return False
+            
+            return True  # All vassal towns are at local hero level
+        
+        return False
 
